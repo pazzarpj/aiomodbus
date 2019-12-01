@@ -51,6 +51,7 @@ def calc_crc(arr: bytearray):
 
 
 def check_crc(packet: bytearray):
-    calc = calc_crc(packet[:2])
-    if not packet[:-2] == calc:
-        raise CrcValidationError(f"Calculated {calc} != {packet[:-2]}")
+    calc = calc_crc(packet[:-2])
+    packet_crc = int.from_bytes(packet[-2:], byteorder="big", signed=False)
+    if packet_crc != calc:
+        raise CrcValidationError(f"calculated {calc:#04x} != read {packet_crc:#04x}")

@@ -1,3 +1,14 @@
+from __future__ import annotations
+
+"""
+Serial Communications
+The implementation of RTU reception driver may imply the management of a lot of interruptions due to the t1.5 and t3.5
+timers. With high communication baud rates, this leads to a heavy CPU load. Consequently these two timers must be
+strictly respected when the baud rate is equal or lower than 19200 Bps. For baud rates greater than 19200 Bps,
+fixed values for the 2 timers should be used: it is recommended to use a value of 750µs for the inter-character
+time-out (t1.5) and a value of 1.750ms for inter-frame delay (t3.5).
+Source www.modbus.org Modbus_over_serial_line_V1.02 2006
+"""
 import struct
 import asyncio
 import serial_asyncio
@@ -5,10 +16,33 @@ from dataclasses import dataclass
 import aiomodbus.crc
 
 
-class ModbusAduResponse:
-    def __init__(self):
+class RequestSerial:
+    def __init__(self, lock: asyncio.Lock, transport: asyncio.Transport, protocol: ModbusSerialProtocol):
+        self.lock = lock
+        self.transport = transport
+        self.protocol = protocol
+        self.timeout_flag = asyncio.Event()
+        self.future = None
+        self.data = bytearray()
+        self.response_length = 0
         self.timer = None
-        self.inter_char_timeout = 0.005  # TODO Configure
+        if transport.serial.baudrate > 19200:
+            self.t_1_5 = 750e-6
+            self.t_3_5 = 1.75e-3
+        else:
+            t_0 = 8 + transport.serial.stopbits
+            if transport.serial.parity != "N":
+                t_0 += 1
+            t_0 /= transport.serial.baudrate
+            # This is 2.5 instead of 1.5 because the interchar delay is meant to be measured  between the end of one
+            # byte and the start of the next. Since we only receive the completed byte we can only measure from the
+            # end of the previous byte to the end of the current byte
+            self.t_1_5 = t_0 * 2.5
+            self.t_3_5 = t_0 * 3.5
+        if self.t_1_5 < 0.1:
+            self.t_1_5 = 0.1
+        if self.t_3_5 < 0.1:
+            self.t_3_5 = 0.1
 
     def watchdog_feed(self):
         if self.timer is not None:
@@ -16,13 +50,82 @@ class ModbusAduResponse:
         self.timer = asyncio.ensure_future(self.timeout_task())
 
     async def timeout_task(self):
-        await asyncio.sleep(self.inter_char_timeout)
+        """
+        Purpose is to trigger on an inter byte timeout since the pyserial library isn't doing it correctly.
+        Currently the python processing and receiving is interferring with the tight timing controls. Need to revisit
+        this function
+        :return:
+        """
+        await asyncio.sleep(self.t_1_5)
+        self.timeout_flag.set()
+        await asyncio.sleep(self.t_1_5)
+        if not self.future.done():
+            self.future.cancel()
+
+    async def __aenter__(self):
+        await self.lock.acquire()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await asyncio.sleep(self.t_3_5)
+        await self.lock.release()
+
+    def data_recv(self, data):
+        self.watchdog_feed()
+        self.data.extend(data)
+        # TODO check exception code responses
+        if len(self.data) == self.exception_length:
+            # TODO check exception
+            exc = self.parse_exception(self.data)
+            if exc:
+                self.future.set_exception(exc)
+        self.future.set_exception()
+        if len(self.data) == self.response_length:
+            self.future.set_result(self.data)
+
+
+class ReadHoldingRegistersRTU(RequestSerial):
+    async def transaction(self, address, count, unit, timeout=None):
+        async with self.lock:
+            self.timeout_flag.clear()
+            self.data.clear()
+            try:
+                packet = self.request_packet(address, count, unit)
+                self.response_length = 5 + count * 2
+                self.exception_length = 2
+                self.future = asyncio.Future()
+                self.protocol.set_recv_callback(self.data_recv)
+                self.transport.write(packet)
+                # TODO replace timeout with turn around time and change to first completed wait
+                response = await asyncio.wait_for(self.future, timeout)
+                aiomodbus.crc.check_crc(response)
+                return self.decode(response, count, unit)
+            finally:
+                await asyncio.sleep(self.t_3_5)
+
+    def request_packet(self, address, count, unit) -> bytearray:
+        packet = bytearray()
+        packet.extend(struct.pack(">BBHH", unit, 0x03, address, count))
+        crc = aiomodbus.crc.calc_crc(packet)
+        packet.extend(struct.pack(">H", crc))
+        return packet
+
+    def decode(self, packet: bytearray, count, unit):
+        # TODO Exception responses
+        unit_id, code, cnt, *values, crc = struct.unpack(">BBBH" + "H" * count, packet)
+        assert unit_id == unit
+        assert code == 0x03
+        return values
+
+    def parse_exception(self, packet: bytearray):
+        pass
 
 
 class ModbusSerialProtocol(asyncio.Protocol):
     def __init__(self):
         self.transport = None
         self.connected = asyncio.Event()
+        self.current_request = None
 
     def connection_made(self, transport):
         self.transport = transport
@@ -32,11 +135,16 @@ class ModbusSerialProtocol(asyncio.Protocol):
 
     def data_received(self, data):
         # print('data received', repr(data))
-        if self.future:
-            self.future.set_result(data)
-            self.future = None
-        if b'\n' in data:
-            self.transport.close()
+        if self.recv_callback:
+            self.recv_callback(data)
+        # if self.future:
+        #     self.future.set_result(data)
+        #     self.future = None
+        # if b'\n' in data:
+        #     self.transport.close()
+
+    def set_recv_callback(self, handle):
+        self.recv_callback = handle
 
     def connection_lost(self, exc):
         print('port closed')
@@ -50,6 +158,10 @@ class ModbusSerialProtocol(asyncio.Protocol):
     def resume_writing(self):
         print(self.transport.get_write_buffer_size())
         print('resume writing')
+
+    async def transaction(self, request: RequestSerial):
+        async with request:
+            self.current_request = request
 
     def read_request(self, unit, function_code, *values):
         packet = bytearray()
@@ -95,13 +207,26 @@ class ModbusSerial:
 
     def __post_init__(self):
         self.transaction = asyncio.Lock()
+        self.t_1_5 = None
+        self.t_3_5 = None
 
     async def connect(self):
         self.transport, self.protocol = await serial_asyncio.create_serial_connection(
             asyncio.get_running_loop(),
             ModbusSerialProtocol, url=self.port, baudrate=self.baudrate, parity=self.parity, stopbits=self.stopbits,
             bytesize=self.bytesize)
+        if self.baudrate > 19200:
+            self.t_1_5 = 750e-6
+            self.t_3_5 = 1.75e-3
+        else:
+            t_0 = 8 + self.stopbits
+            if self.parity != "N":
+                t_0 += 1
+            t_0 /= self.baudrate
+            self.t_1_5 = t_0 * 1.5
+            self.t_3_5 = t_0 * 3.5
         await self.protocol.connected.wait()
+        self._read_holding_registers = ReadHoldingRegistersRTU(self.transaction, self.transport, self.protocol)
 
     async def read_coils(self, address, count, *, unit=None, timeout=None):
         async with self.transaction:
@@ -120,12 +245,7 @@ class ModbusSerial:
                                           timeout=timeout)
 
     async def read_holding_registers(self, address, count, *, unit=None, timeout=None):
-        async with self.transaction:
-            if unit is None:
-                unit = self.default_unit_id
-            function_code = 0x03
-            return await asyncio.wait_for(self.protocol.read_request(unit, function_code, address, count),
-                                          timeout=timeout)
+        return await self._read_holding_registers.transaction(address, count, unit or self.default_unit_id, timeout)
 
     async def read_input_registers(self, address, count, *, unit=None, timeout=None):
         async with self.transaction:
@@ -194,7 +314,7 @@ if __name__ == "__main__":
         while True:
             print(await client.read_holding_registers(1, 2, unit=1))
             # transport.write(b"HI THERE")
-            await asyncio.sleep(0.05)
+            # await asyncio.sleep(0.05)
             # print("Am i blocked?")
             # await asyncio.sleep(1)
 
