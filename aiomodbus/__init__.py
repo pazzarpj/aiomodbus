@@ -12,11 +12,68 @@ Source www.modbus.org Modbus_over_serial_line_V1.02 2006
 import struct
 import asyncio
 import serial_asyncio
+import logging
 from dataclasses import dataclass
 import aiomodbus.crc
 
+log = logging.getLogger(__file__)
+
+
+class RequestException(ValueError):
+    pass
+
+
+class FunctionCodeNotSupported(RequestException):
+    pass
+
+
+class InvalidAddress(RequestException):
+    pass
+
+
+class MemoryParityError(IOError):
+    pass
+
+
+class SlaveDeviceFailure(IOError):
+    pass
+
+
+class AcknowledgeError(IOError):
+    pass
+
+
+class DeviceBusy(IOError):
+    pass
+
+
+class GatewayPathUnavailable(IOError):
+    pass
+
+
+class GatewayDeviceFailedToRespond(IOError):
+    pass
+
+
+modbus_exception_codes = {
+    1: FunctionCodeNotSupported,
+    2: InvalidAddress,
+    3: InvalidAddress,
+    4: SlaveDeviceFailure,
+    5: AcknowledgeError,
+    6: DeviceBusy,
+    7: DeviceBusy,
+    8: MemoryParityError,
+    10: GatewayPathUnavailable,
+    11: GatewayDeviceFailedToRespond,
+    12: ConnectionError,
+}
+
 
 class RequestSerial:
+    function_code = 0
+    exception_code = 0
+
     def __init__(self, lock: asyncio.Lock, transport: asyncio.Transport, protocol: ModbusSerialProtocol):
         self.lock = lock
         self.transport = transport
@@ -25,6 +82,7 @@ class RequestSerial:
         self.future = None
         self.data = bytearray()
         self.response_length = 0
+        self.exception_length = 0
         self.timer = None
         if transport.serial.baudrate > 19200:
             self.t_1_5 = 750e-6
@@ -74,17 +132,17 @@ class RequestSerial:
         self.watchdog_feed()
         self.data.extend(data)
         # TODO check exception code responses
-        if len(self.data) == self.exception_length:
-            # TODO check exception
-            exc = self.parse_exception(self.data)
-            if exc:
-                self.future.set_exception(exc)
-        self.future.set_exception()
-        if len(self.data) == self.response_length:
+        if len(self.data) == self.exception_length and self.data[1] == self.exception_code:
+            self.future.set_exception(modbus_exception_codes.get(self.data[2], IOError))
+        elif len(self.data) == self.response_length:
             self.future.set_result(self.data)
 
 
 class ReadHoldingRegistersRTU(RequestSerial):
+    function_code = 0x03
+    exception_code = 0x83
+    exception_length = 5
+
     async def transaction(self, address, count, unit, timeout=None):
         async with self.lock:
             self.timeout_flag.clear()
@@ -92,7 +150,6 @@ class ReadHoldingRegistersRTU(RequestSerial):
             try:
                 packet = self.request_packet(address, count, unit)
                 self.response_length = 5 + count * 2
-                self.exception_length = 2
                 self.future = asyncio.Future()
                 self.protocol.set_recv_callback(self.data_recv)
                 self.transport.write(packet)
@@ -105,20 +162,16 @@ class ReadHoldingRegistersRTU(RequestSerial):
 
     def request_packet(self, address, count, unit) -> bytearray:
         packet = bytearray()
-        packet.extend(struct.pack(">BBHH", unit, 0x03, address, count))
+        packet.extend(struct.pack(">BBHH", unit, self.function_code, address, count))
         crc = aiomodbus.crc.calc_crc(packet)
         packet.extend(struct.pack(">H", crc))
         return packet
 
     def decode(self, packet: bytearray, count, unit):
-        # TODO Exception responses
         unit_id, code, cnt, *values, crc = struct.unpack(">BBBH" + "H" * count, packet)
         assert unit_id == unit
         assert code == 0x03
         return values
-
-    def parse_exception(self, packet: bytearray):
-        pass
 
 
 class ModbusSerialProtocol(asyncio.Protocol):
@@ -312,7 +365,10 @@ if __name__ == "__main__":
         #     ModbusSerialProtocol, "COM14",
         #     baudrate=9600, parity="E", stopbits=2)
         while True:
-            print(await client.read_holding_registers(1, 2, unit=1))
+            try:
+                print(await client.read_holding_registers(1, 2, unit=1))
+            except BaseException as e:
+                log.exception(e)
             # transport.write(b"HI THERE")
             # await asyncio.sleep(0.05)
             # print("Am i blocked?")
