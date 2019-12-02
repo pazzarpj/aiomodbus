@@ -97,6 +97,8 @@ class RequestSerial:
             # end of the previous byte to the end of the current byte
             self.t_1_5 = t_0 * 2.5
             self.t_3_5 = t_0 * 3.5
+        # According to http://www.unixwiz.net/techtips/termios-vmin-vtime.html. The interchar timeout is measured in 0.1
+        # second intervals. That means we can't enforce the inter byte timeout as set in the modbus standard
         if self.t_1_5 < 0.1:
             self.t_1_5 = 0.1
         if self.t_3_5 < 0.1:
@@ -133,8 +135,10 @@ class RequestSerial:
         self.data.extend(data)
         # TODO check exception code responses
         if len(self.data) == self.exception_length and self.data[1] == self.exception_code:
+            self.protocol.recv_callback = None
             self.future.set_exception(modbus_exception_codes.get(self.data[2], IOError))
         elif len(self.data) == self.response_length:
+            self.protocol.recv_callback = None
             self.future.set_result(self.data)
 
 
@@ -170,7 +174,7 @@ class ReadHoldingRegistersRTU(RequestSerial):
     def decode(self, packet: bytearray, count, unit):
         unit_id, code, cnt, *values, crc = struct.unpack(">BBBH" + "H" * count, packet)
         assert unit_id == unit
-        assert code == 0x03
+        assert code == self.function_code
         return values
 
 
@@ -187,14 +191,8 @@ class ModbusSerialProtocol(asyncio.Protocol):
         self.connected.set()
 
     def data_received(self, data):
-        # print('data received', repr(data))
         if self.recv_callback:
             self.recv_callback(data)
-        # if self.future:
-        #     self.future.set_result(data)
-        #     self.future = None
-        # if b'\n' in data:
-        #     self.transport.close()
 
     def set_recv_callback(self, handle):
         self.recv_callback = handle
