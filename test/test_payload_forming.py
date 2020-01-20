@@ -1,4 +1,5 @@
 import pytest
+import struct
 from unittest.mock import MagicMock
 import aiomodbus
 import asyncio
@@ -103,3 +104,29 @@ async def test_write_registers():
     asyncio.get_event_loop().call_later(0.01, respond(client.protocol, b"\x11\x10\x00\x01\x00\x02\x12\x98"))
     await client.write_multiple_registers(0x01, 0xA, 0x102, unit=0x11)
     client.transport.write.assert_called_once_with(b"\x11\x10\x00\x01\x00\x02\x04\x00\x0A\x01\x02\xC6\xF0")
+
+
+@pytest.mark.parametrize("exceptioncls,exception_code", [
+    (aiomodbus.IllegalFunction, 1),
+    (aiomodbus.IllegalDataAddress, 2),
+    (aiomodbus.IllegalDataValue, 3),
+    (aiomodbus.SlaveDeviceFailure, 4),
+    (aiomodbus.AcknowledgeError, 5),
+    (aiomodbus.DeviceBusy, 6),
+    (aiomodbus.NegativeAcknowledgeError, 7),
+    (aiomodbus.MemoryParityError, 8),
+    (aiomodbus.GatewayPathUnavailable, 10),
+    (aiomodbus.GatewayDeviceFailedToRespond, 11),
+    (ConnectionError, 12),
+])
+@pytest.mark.asyncio
+async def test_exceptions(exceptioncls, exception_code):
+    client = aiomodbus.ModbusSerialClient("COM3", 9600, "N", 1)
+    client.transport = MagicMock()
+    client.protocol = aiomodbus.ModbusSerialProtocol()
+    exc_packet = bytearray([0x11, 0x83, exception_code])
+    exc_packet.extend(struct.pack(">H", aiomodbus.crc.calc_crc(exc_packet)))
+    asyncio.get_event_loop().call_later(0.01, respond(client.protocol, exc_packet))
+    with pytest.raises(exceptioncls):
+        await client.read_holding_registers(0x6b, 0x3, unit=0x11)
+    client.transport.write.assert_called_once_with(b"\x11\x03\x00\x6b\x00\x03\x76\x87")
