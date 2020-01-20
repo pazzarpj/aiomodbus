@@ -89,8 +89,6 @@ class ModbusSerialProtocol(asyncio.Protocol):
 
     def connection_made(self, transport):
         self.transport = transport
-        print('port opened', transport)
-        # transport.serial.rts = False  # You can manipulate Serial object via transport
         self.connected.set()
 
     def data_received(self, data):
@@ -110,17 +108,8 @@ class ModbusSerialProtocol(asyncio.Protocol):
                 return struct.unpack(decode_packing, self.buffer[:packet_length])
 
     def connection_lost(self, exc):
-        print('port closed')
         self.transport.loop.stop()
         self.connected.clear()
-
-    def pause_writing(self):
-        print('pause writing')
-        print(self.transport.get_write_buffer_size())
-
-    def resume_writing(self):
-        print(self.transport.get_write_buffer_size())
-        print('resume writing')
 
 
 @dataclass
@@ -270,10 +259,6 @@ if __name__ == "__main__":
                                                       random.randint(1, 100), unit=1)
             except BaseException as e:
                 log.exception(e)
-        # transport.write(b"HI THERE")
-        # await asyncio.sleep(0.05)
-        # print("Am i blocked?")
-        # await asyncio.sleep(1)
 
 
     asyncio.run(main())
