@@ -10,81 +10,96 @@ def async_return(result):
     return f
 
 
+def respond(protocol, arr):
+    def _tmp():
+        protocol.buffer = arr
+        protocol.evt.set()
+
+    return _tmp
+
+
 @pytest.mark.asyncio
-async def test_encode_read_coils():
+async def test_read_coils():
     client = aiomodbus.ModbusSerialClient("COM3", 9600, "N", 1)
     client.transport = MagicMock()
     client.protocol = MagicMock()
-    client.protocol.decode.return_value = async_return((0x11, 0x01, 0x45E6))
-    await client.read_coils(0x13, 0x25, unit=0x11)
+    asyncio.get_event_loop().call_later(0.01, respond(client.protocol, b"\x11\x01\x05\xCD\x6B\xB2\x0E\x1B\x45\xE6"))
+    resp = await client.read_coils(0x13, 0x25, unit=0x11)
     client.transport.write.assert_called_once_with(b"\x11\x01\x00\x13\x00\x25\x0E\x84")
+    assert resp == [True, False, True, True, False, False, True, True, True, True, False, True, False, True, True,
+                    False, False, True, False, False, True, True, False, True, False, True, True, True, False, False,
+                    False, False, True, True, False, True, True]
 
 
 @pytest.mark.asyncio
-async def test_encode_read_discrete_inputs():
+async def test_read_discrete_inputs():
     client = aiomodbus.ModbusSerialClient("COM3", 9600, "N", 1)
     client.transport = MagicMock()
     client.protocol = MagicMock()
-    client.protocol.decode.return_value = async_return((0x11, 0x02, 0xBAA9))
-    await client.read_discrete_inputs(0xC4, 0x16, unit=0x11)
+    asyncio.get_event_loop().call_later(0.01, respond(client.protocol, b"\x11\x02\x03\xAC\xDB\x35\x20\x18"))
+    resp = await client.read_discrete_inputs(0xC4, 0x16, unit=0x11)
     client.transport.write.assert_called_once_with(b"\x11\x02\x00\xC4\x00\x16\xBA\xA9")
+    assert resp == [False, False, True, True, False, True, False, True, True, True, False, True, True, False, True,
+                    True, True, False, True, False, True, True]
 
 
 @pytest.mark.asyncio
-async def test_encode_read_holding_registers():
+async def test_read_holding_registers():
     client = aiomodbus.ModbusSerialClient("COM3", 9600, "N", 1)
     client.transport = MagicMock()
-    client.protocol = MagicMock()
-    client.protocol.decode.return_value = async_return((0x11, 0x03, 0x7687))
-    await client.read_holding_registers(0x6b, 0x3, unit=0x11)
+    client.protocol = aiomodbus.ModbusSerialProtocol()
+    asyncio.get_event_loop().call_later(0.01, respond(client.protocol, b"\x11\x03\x06\xAE\x41\x56\x52\x43\x40\x49\xAD"))
+    resp = await client.read_holding_registers(0x6b, 0x3, unit=0x11)
     client.transport.write.assert_called_once_with(b"\x11\x03\x00\x6b\x00\x03\x76\x87")
+    assert resp == [0xAE41, 0x5652, 0x4340]
 
 
 @pytest.mark.asyncio
-async def test_encode_read_input_registers():
+async def test_read_input_registers():
     client = aiomodbus.ModbusSerialClient("COM3", 9600, "N", 1)
     client.transport = MagicMock()
-    client.protocol = MagicMock()
-    client.protocol.decode.return_value = async_return((0x11, 0x04, 0xB298))
-    await client.read_holding_registers(0x08, 0x1, unit=0x11)
+    client.protocol = aiomodbus.ModbusSerialProtocol()
+    asyncio.get_event_loop().call_later(0.01, respond(client.protocol, b"\x11\x04\x02\x00\x0A\xF8\xF4"))
+    resp = await client.read_holding_registers(0x08, 0x1, unit=0x11)
     client.transport.write.assert_called_once_with(b"\x11\x04\x00\x08\x00\x01\xB2\x98")
+    assert resp == [0xA]
 
 
 @pytest.mark.asyncio
-async def test_encode_write_coil():
+async def test_write_coil():
     client = aiomodbus.ModbusSerialClient("COM3", 9600, "N", 1)
     client.transport = MagicMock()
-    client.protocol = MagicMock()
-    client.protocol.decode.return_value = async_return((0x11, 0x05, 0x4E8B))
+    client.protocol = aiomodbus.ModbusSerialProtocol()
+    asyncio.get_event_loop().call_later(0.01, respond(client.protocol, b"\x11\x05\x00\xAC\xFF\x00\x4E\x8B"))
     await client.write_single_coil(0xAC, True, unit=0x11)
     client.transport.write.assert_called_once_with(b"\x11\x05\x00\xAC\xFF\x00\x4E\x8B")
 
 
 @pytest.mark.asyncio
-async def test_encode_write_register():
+async def test_write_register():
     client = aiomodbus.ModbusSerialClient("COM3", 9600, "N", 1)
     client.transport = MagicMock()
-    client.protocol = MagicMock()
-    client.protocol.decode.return_value = async_return((0x11, 0x06, 0x9A9B))
+    client.protocol = aiomodbus.ModbusSerialProtocol()
+    asyncio.get_event_loop().call_later(0.01, respond(client.protocol, b"\x11\x06\x00\x01\x00\x03\x9A\x9B"))
     await client.write_single_register(0x01, 0x3, unit=0x11)
     client.transport.write.assert_called_once_with(b"\x11\x06\x00\x01\x00\x03\x9A\x9B")
 
 
 @pytest.mark.asyncio
-async def test_encode_write_coils():
+async def test_write_coils():
     client = aiomodbus.ModbusSerialClient("COM3", 9600, "N", 1)
     client.transport = MagicMock()
-    client.protocol = MagicMock()
-    client.protocol.decode.return_value = async_return((0x11, 0x0F, 0xBF0B))
+    client.protocol = aiomodbus.ModbusSerialProtocol()
+    asyncio.get_event_loop().call_later(0.01, respond(client.protocol, b"\x11\x0F\x00\x13\x00\x0A\x26\x99"))
     await client.write_multiple_coils(0x13, True, False, True, True, False, False, True, True, True, False, unit=0x11)
     client.transport.write.assert_called_once_with(b"\x11\x0F\x00\x13\x00\x0A\x02\xCD\x01\xBF\x0B")
 
 
 @pytest.mark.asyncio
-async def test_encode_write_registers():
+async def test_write_registers():
     client = aiomodbus.ModbusSerialClient("COM3", 9600, "N", 1)
     client.transport = MagicMock()
-    client.protocol = MagicMock()
-    client.protocol.decode.return_value = async_return((0x11, 0x10, 0xC6F0))
+    client.protocol = aiomodbus.ModbusSerialProtocol()
+    asyncio.get_event_loop().call_later(0.01, respond(client.protocol, b"\x11\x10\x00\x01\x00\x02\x12\x98"))
     await client.write_multiple_registers(0x01, 0xA, 0x102, unit=0x11)
     client.transport.write.assert_called_once_with(b"\x11\x10\x00\x01\x00\x02\x04\x00\x0A\x01\x02\xC6\xF0")
