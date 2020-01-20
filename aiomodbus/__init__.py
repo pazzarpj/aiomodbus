@@ -186,8 +186,12 @@ class ModbusSerialClient:
         return self._upack_bits(*resp[1:])[:count]
 
     async def read_discrete_inputs(self, address, count, *, unit=None, timeout=None):
-        function_code = 0x02
-        raise NotImplementedError
+        if unit is None:
+            unit = self.default_unit_id
+        resp = await self._request(unit, 0x02, address, count, request_packing=">BBHH",
+                                   decode_packing=">BBB" + "B" * (count // 8 + 1) + "H",
+                                   packet_length=5 + 1 * (count // 8 + 1))
+        return self._upack_bits(*resp[1:])[:count]
 
     async def read_holding_registers(self, address, count, *, unit=None, timeout=None):
         # return await self._read_holding_registers.transaction(address, count, unit or self.default_unit_id, timeout)
