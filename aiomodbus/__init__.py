@@ -15,6 +15,7 @@ import serial_asyncio
 import logging
 from dataclasses import dataclass
 import aiomodbus.crc
+from concurrent.futures import TimeoutError
 
 log = logging.getLogger(__file__)
 
@@ -89,23 +90,36 @@ class ModbusSerialProtocol(asyncio.Protocol):
 
     def connection_made(self, transport):
         self.transport = transport
+        # self.transport.serial.inter_byte_timeout = 0.1
+        self.transport.serial.flushInput()
+        self.transport.serial.flushOutput()
         self.connected.set()
 
     def data_received(self, data):
         self.buffer.extend(data)
+        self.evt.clear()
         self.evt.set()
 
-    async def decode(self, packet_length, decode_packing):
-        self.evt.clear()
-        while True:
+    async def decode(self, packet_length, decode_packing, turn_around_delay_timeout=0.4):
+        timeout = 0
+        if turn_around_delay_timeout:
+            await asyncio.wait_for(self.evt.wait(), turn_around_delay_timeout)
+        else:
             await self.evt.wait()
-            self.evt.clear()
+        while True:
             if len(self.buffer) >= 5:
                 if self.buffer[1] & 0x80:
                     raise modbus_exception_codes[self.buffer[2]]
             if len(self.buffer) >= packet_length:
                 aiomodbus.crc.check_crc(self.buffer[:packet_length])
                 return struct.unpack(decode_packing, self.buffer[:packet_length])
+            try:
+                await asyncio.wait_for(self.evt.wait(), 0.01)
+                timeout = 0
+            except TimeoutError:
+                timeout += 0.01
+                if timeout >= 0.1:
+                    raise
 
     def connection_lost(self, exc):
         self.transport.loop.stop()
@@ -127,6 +141,7 @@ class ModbusSerialClient:
         self.transaction = asyncio.Lock()
         self.t_1_5 = None
         self.t_3_5 = None
+        self.byte_time = 1 / (self.baudrate / (self.bytesize + self.stopbits + 1) / 1.5)
 
     async def connect(self):
         self.transport, self.protocol = await serial_asyncio.create_serial_connection(
@@ -158,9 +173,15 @@ class ModbusSerialClient:
     async def _request(self, unit: int, function_code: int, address: int, *values: int, request_packing: str,
                        decode_packing: str, packet_length: int):
         async with self.transaction:
+            await asyncio.sleep(self.byte_time * 2.5)
+            self.transport.serial.flushInput()
+            self.transport.serial.flushOutput()
             buf = self.protocol.buffer
             buf.clear()
-            self.transport.write(self._encode_packet(unit, function_code, address, *values, packing=request_packing))
+            packet = self._encode_packet(unit, function_code, address, *values, packing=request_packing)
+            self.transport.write(packet)
+            self.protocol.evt.clear()
+            await asyncio.sleep(self.byte_time * len(packet))
             unit_id, func_code, *values, crc = await self.protocol.decode(packet_length, decode_packing)
             assert unit_id == unit
             assert function_code == func_code
@@ -247,7 +268,7 @@ if __name__ == "__main__":
         #     baudrate=9600, parity="E", stopbits=2)
         while True:
             try:
-                print(await client.read_holding_registers(1, 2, unit=1))
+                print(await client.read_holding_registers(1, 125, unit=1))
             except BaseException as e:
                 log.exception(e)
             try:
@@ -261,4 +282,4 @@ if __name__ == "__main__":
                 log.exception(e)
 
 
-    asyncio.run(main())
+    asyncio.run(main(), debug=True)
