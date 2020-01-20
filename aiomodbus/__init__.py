@@ -23,11 +23,15 @@ class RequestException(ValueError):
     pass
 
 
-class FunctionCodeNotSupported(RequestException):
+class IllegalFunction(RequestException):
     pass
 
 
-class InvalidAddress(RequestException):
+class IllegalDataAddress(RequestException):
+    pass
+
+
+class IllegalDataValue(RequestException):
     pass
 
 
@@ -47,6 +51,10 @@ class DeviceBusy(IOError):
     pass
 
 
+class NegativeAcknowledgeError(IOError):
+    pass
+
+
 class GatewayPathUnavailable(IOError):
     pass
 
@@ -56,162 +64,18 @@ class GatewayDeviceFailedToRespond(IOError):
 
 
 modbus_exception_codes = {
-    1: FunctionCodeNotSupported,
-    2: InvalidAddress,
-    3: InvalidAddress,
+    1: IllegalFunction,
+    2: IllegalDataAddress,
+    3: IllegalDataValue,
     4: SlaveDeviceFailure,
     5: AcknowledgeError,
     6: DeviceBusy,
-    7: DeviceBusy,
+    7: NegativeAcknowledgeError,
     8: MemoryParityError,
     10: GatewayPathUnavailable,
     11: GatewayDeviceFailedToRespond,
     12: ConnectionError,
 }
-
-
-class Watchdog:
-    def __init__(self, check_interval: float):
-        self.check_interval = check_interval
-        self.cancel_flag = False
-        self.started = True
-        self.future = None
-
-    def feed(self):
-        self.cancel_flag = False
-        if not self.started:
-            self.start()
-
-    def start(self):
-        asyncio.create_task(self._loop(self.future))
-
-    async def _loop(self, future: asyncio.Future):
-        while True:
-            await asyncio.sleep(self.check_interval)
-            if future.done():
-                break
-            if self.cancel_flag:
-                future.cancel()
-            self.cancel_flag = True
-        self.started = False
-
-
-class RequestSerial:
-    function_code = 0
-    exception_code = 0
-
-    def __init__(self, lock: asyncio.Lock, transport: asyncio.Transport, protocol: ModbusSerialProtocol):
-        self.lock = lock
-        self.transport = transport
-        self.protocol = protocol
-        self.future = None
-        self.data = bytearray()
-        self.response_length = 0
-        self.exception_length = 0
-        self.timer = None
-        self.request_packing = ""
-        self.decode_packing = ""
-        if transport.serial.baudrate > 19200:
-            self.t_1_5 = 750e-6
-            self.t_3_5 = 1.75e-3
-        else:
-            t_0 = 8 + transport.serial.stopbits
-            if transport.serial.parity != "N":
-                t_0 += 1
-            t_0 /= transport.serial.baudrate
-            # This is 2.5 instead of 1.5 because the interchar delay is meant to be measured  between the end of one
-            # byte and the start of the next. Since we only receive the completed byte we can only measure from the
-            # end of the previous byte to the end of the current byte
-            self.t_1_5 = t_0 * 2.5
-            self.t_3_5 = t_0 * 3.5
-        # According to http://www.unixwiz.net/techtips/termios-vmin-vtime.html. The interchar timeout is measured in 0.1
-        # second intervals. That means we can't enforce the inter byte timeout as set in the modbus standard
-        if self.t_1_5 < 0.1:
-            self.t_1_5 = 0.1
-        # if self.t_3_5 < 0.1:
-        # self.t_3_5 = 0.1
-        self.wachdog = Watchdog(self.t_3_5)
-
-    def data_recv(self, data):
-        self.wachdog.feed()
-        self.data.extend(data)
-        # TODO check exception code responses
-        if len(self.data) == self.exception_length and self.data[1] == self.exception_code:
-            self.protocol.recv_callback = None
-            self.future.set_exception(modbus_exception_codes.get(self.data[2], IOError))
-        elif len(self.data) >= self.response_length:
-            self.protocol.recv_callback = None
-            self.future.set_result(self.data)
-
-    def request_packet(self, address, count, unit) -> bytearray:
-        packet = bytearray()
-        packet.extend(struct.pack(self.request_packing, unit, self.function_code, address, count))
-        crc = aiomodbus.crc.calc_crc(packet)
-        packet.extend(struct.pack(">H", crc))
-        return packet
-
-    def decode(self, packet: bytearray, unit):
-        unit_id, code, cnt, *values, crc = struct.unpack(self.decode_packing, packet)
-        assert unit_id == unit
-        assert code == self.function_code
-        return values
-
-
-class ReadHoldingRegistersRTU(RequestSerial):
-    function_code = 0x03
-    exception_code = 0x83
-    exception_length = 5
-
-    async def transaction(self, address, count, unit, timeout=None):
-        async with self.lock:
-            self.data.clear()
-            self.request_packing = ">BBHH"
-            self.decode_packing = ">BBBH" + "H" * count
-            try:
-                packet = self.request_packet(address, count, unit)
-                self.response_length = 5 + count * 2
-                self.future = asyncio.Future()
-                self.protocol.set_recv_callback(self.data_recv)
-                print(f"writing: packet")
-                self.transport.write(packet)
-                self.wachdog.future = self.future
-                # TODO replace timeout with turn around time and change to first completed wait
-                response = await asyncio.wait_for(self.future, timeout=0.3)
-                # print("Check CRC")
-                aiomodbus.crc.check_crc(response)
-                return self.decode(response, unit)
-            except:
-                await asyncio.sleep(0.01)
-                raise
-            finally:
-                await asyncio.sleep(self.t_3_5)
-
-
-class WriteSingleRegisterRTU(RequestSerial):
-    function_code = 0x06
-    exception_code = 0x86
-    exception_length = 5
-
-    async def transaction(self, address, value, unit, timeout=None):
-        async with self.lock:
-            self.data.clear()
-            self.request_packing = ">BBHH"
-            self.decode_packing = ">BBHHH"
-            try:
-                packet = self.request_packet(address, value, unit)
-                self.response_length = 8
-                self.future = asyncio.Future()
-                self.protocol.set_recv_callback(self.data_recv)
-                self.transport.write(packet)
-                response = await asyncio.wait_for(self.future, timeout=0.3)
-                # TODO replace timeout with turn around time and change to first completed wait
-                aiomodbus.crc.check_crc(response)
-                return self.decode(response, unit)
-            except:
-                await asyncio.sleep(0.01)
-                raise
-            finally:
-                await asyncio.sleep(self.t_3_5)
 
 
 class ModbusSerialProtocol(asyncio.Protocol):
@@ -220,38 +84,36 @@ class ModbusSerialProtocol(asyncio.Protocol):
         self.connected = asyncio.Event()
         self.current_request = None
         self.recv_callback = None
+        self.buffer = bytearray()
+        self.evt = asyncio.Event()
 
     def connection_made(self, transport):
         self.transport = transport
-        print('port opened', transport)
-        # transport.serial.rts = False  # You can manipulate Serial object via transport
         self.connected.set()
 
     def data_received(self, data):
-        if self.recv_callback:
-            self.recv_callback(data)
-        else:
-            print(f"Uncaught data: {data}")
+        self.buffer.extend(data)
+        self.evt.set()
 
-    def set_recv_callback(self, handle):
-        self.recv_callback = handle
+    async def decode(self, packet_length, decode_packing):
+        self.evt.clear()
+        while True:
+            await self.evt.wait()
+            self.evt.clear()
+            if len(self.buffer) >= 5:
+                if self.buffer[1] & 0x80:
+                    raise modbus_exception_codes[self.buffer[2]]
+            if len(self.buffer) >= packet_length:
+                aiomodbus.crc.check_crc(self.buffer[:packet_length])
+                return struct.unpack(decode_packing, self.buffer[:packet_length])
 
     def connection_lost(self, exc):
-        print('port closed')
         self.transport.loop.stop()
         self.connected.clear()
 
-    def pause_writing(self):
-        print('pause writing')
-        print(self.transport.get_write_buffer_size())
-
-    def resume_writing(self):
-        print(self.transport.get_write_buffer_size())
-        print('resume writing')
-
 
 @dataclass
-class ModbusSerial:
+class ModbusSerialClient:
     port: str
     baudrate: int
     parity: str
@@ -271,88 +133,105 @@ class ModbusSerial:
             asyncio.get_running_loop(),
             ModbusSerialProtocol, url=self.port, baudrate=self.baudrate, parity=self.parity, stopbits=self.stopbits,
             bytesize=self.bytesize)
-        if self.baudrate > 19200:
-            self.t_1_5 = 750e-6
-            self.t_3_5 = 1.75e-3
-        else:
-            t_0 = 8 + self.stopbits
-            if self.parity != "N":
-                t_0 += 1
-            t_0 /= self.baudrate
-            self.t_1_5 = t_0 * 1.5
-            self.t_3_5 = t_0 * 3.5
         await self.protocol.connected.wait()
-        self._read_holding_registers = ReadHoldingRegistersRTU(self.transaction, self.transport, self.protocol)
-        self._write_holding_register = WriteSingleRegisterRTU(self.transaction, self.transport, self.protocol)
 
-    async def read_coils(self, address, count, *, unit=None, timeout=None):
+    def _encode_packet(self, unit, function_code, address, *values, packing) -> bytearray:
+        packet = bytearray()
+        packet.extend(struct.pack(packing, unit, function_code, address, *values))
+        crc = aiomodbus.crc.calc_crc(packet)
+        packet.extend(struct.pack(">H", crc))
+        return packet
+
+    def _pack_bits(self, *values: bool, size=8):
+        vals = [0] * (len(values) // size + 1)
+        for ind, bit in enumerate(values):
+            vals[ind // size] += bit << ind % size
+        return vals
+
+    def _upack_bits(self, *values: int, size=8):
+        vals = []
+        for val in values:
+            for ind in range(size):
+                vals.append(bool((val >> ind) & 1))
+        return vals
+
+    async def _request(self, unit: int, function_code: int, address: int, *values: int, request_packing: str,
+                       decode_packing: str, packet_length: int):
         async with self.transaction:
-            if unit is None:
-                unit = self.default_unit_id
-            function_code = 0x01
-            return await asyncio.wait_for(self.protocol.read_request(unit, function_code, address, count),
-                                          timeout=timeout)
+            buf = self.protocol.buffer
+            buf.clear()
+            self.transport.write(self._encode_packet(unit, function_code, address, *values, packing=request_packing))
+            unit_id, func_code, *values, crc = await self.protocol.decode(packet_length, decode_packing)
+            assert unit_id == unit
+            assert function_code == func_code
+            return values
 
-    async def read_discrete_inputs(self, address, count, *, unit=None, timeout=None):
-        async with self.transaction:
-            if unit is None:
-                unit = self.default_unit_id
-            function_code = 0x02
-            return await asyncio.wait_for(self.protocol.read_request(unit, function_code, address, count),
-                                          timeout=timeout)
+    async def read_coils(self, address: int, count: int, *, unit=None, timeout=None):
+        if unit is None:
+            unit = self.default_unit_id
+        resp = await self._request(unit, 0x01, address, count, request_packing=">BBHH",
+                                   decode_packing=">BBB" + "B" * (count // 8 + 1) + "H",
+                                   packet_length=5 + 1 * (count // 8 + 1))
+        return self._upack_bits(*resp[1:])[:count]
 
-    async def read_holding_registers(self, address, count, *, unit=None, timeout=None):
-        return await self._read_holding_registers.transaction(address, count, unit or self.default_unit_id, timeout)
+    async def read_discrete_inputs(self, address: int, count: int, *, unit=None, timeout=None):
+        if unit is None:
+            unit = self.default_unit_id
+        resp = await self._request(unit, 0x02, address, count, request_packing=">BBHH",
+                                   decode_packing=">BBB" + "B" * (count // 8 + 1) + "H",
+                                   packet_length=5 + 1 * (count // 8 + 1))
+        return self._upack_bits(*resp[1:])[:count]
 
-    async def read_input_registers(self, address, count, *, unit=None, timeout=None):
-        async with self.transaction:
-            if unit is None:
-                unit = self.default_unit_id
-            function_code = 0x04
-            return await asyncio.wait_for(self.protocol.read_request(unit, function_code, address, count),
-                                          timeout=timeout)
+    async def read_holding_registers(self, address: int, count: int, *, unit=None, timeout=None):
+        if unit is None:
+            unit = self.default_unit_id
+        resp = await self._request(unit, 0x03, address, count, request_packing=">BBHH",
+                                   decode_packing=">BBBH" + "H" * count, packet_length=5 + 2 * count)
+        return resp[1:]
 
-    async def write_single_coil(self, address, value, *, unit=None, timeout=None):
-        async with self.transaction:
-            if unit is None:
-                unit = self.default_unit_id
-            function_code = 0x05
-            return await asyncio.wait_for(self.protocol.read_request(unit, function_code, address, value),
-                                          timeout=timeout)
+    async def read_input_registers(self, address: int, count: int, *, unit=None, timeout=None):
+        if unit is None:
+            unit = self.default_unit_id
+        resp = await self._request(unit, 0x04, address, count, request_packing=">BBHH",
+                                   decode_packing=">BBBH" + "H" * count, packet_length=5 + 2 * count)
+        return resp[1:]
 
-    async def write_single_register(self, address, value, *, unit=None, timeout=None):
-        return await self._write_holding_register.transaction(address, value, unit or self.default_unit_id, timeout)
+    async def write_single_coil(self, address: int, value: bool, *, unit=None, timeout=None):
+        if unit is None:
+            unit = self.default_unit_id
+        if value:
+            value = 0xff00
+        await self._request(unit, 0x05, address, value, request_packing=">BBHH",
+                            decode_packing=">BBHHH", packet_length=8)
 
-    async def write_multiple_coils(self, address, *values, unit=None, timeout=None):
-        async with self.transaction:
-            if unit is None:
-                unit = self.default_unit_id
-            function_code = 0x0f
-            return self.protocol.write_multiple_request(unit, function_code, address, len(values) * 2, *values,
-                                                        reg_size=8)
+    async def write_single_register(self, address: int, value: int, *, unit=None, timeout=None):
+        if unit is None:
+            unit = self.default_unit_id
+        return await self._request(unit, 0x06, address, value, request_packing=">BBHH",
+                                   decode_packing=">BBHHH", packet_length=8)
 
-    async def write_multiple_registers(self, address, *values, unit=None, timeout=None):
-        async with self.transaction:
-            if unit is None:
-                unit = self.default_unit_id
-            function_code = 0x10
-            return self.protocol.write_multiple_request(unit, function_code, address, len(values) * 2, *values,
-                                                        reg_size=16)
+    async def write_multiple_coils(self, address: int, *values: bool, unit=None, timeout=None):
+        if unit is None:
+            unit = self.default_unit_id
+        vals = self._pack_bits(*values)
+        await self._request(unit, 0x0f, address, len(values), len(vals), *vals,
+                            request_packing=">BBHHB" + "B" * len(vals),
+                            decode_packing=">BBHHH", packet_length=8)
+
+    async def write_multiple_registers(self, address: int, *values: int, unit=None, timeout=None):
+        if unit is None:
+            unit = self.default_unit_id
+        await self._request(unit, 0x10, address, len(values), len(values) * 2, *values,
+                            request_packing=">BBHHB" + "H" * len(values),
+                            decode_packing=">BBHHH", packet_length=8)
 
     async def read_exception_status(self, unit=None, timeout=None):
-        async with self.transaction:
-            if unit is None:
-                unit = self.default_unit_id
-            function_code = 0x07
-            return await asyncio.wait_for(self.protocol.read_request(unit, function_code), timeout=timeout)
+        function_code = 0x07
+        raise NotImplementedError
 
     async def diagnostics(self, sub_function, *data, unit=None, timeout=None):
-        async with self.transaction:
-            if unit is None:
-                unit = self.default_unit_id
-            function_code = 0x08
-            return await asyncio.wait_for(self.protocol.read_request(unit, function_code, sub_function, *data),
-                                          timeout=timeout)
+        function_code = 0x08
+        raise NotImplementedError
 
 
 if __name__ == "__main__":
@@ -360,7 +239,7 @@ if __name__ == "__main__":
 
 
     async def main():
-        client = ModbusSerial("COM14", baudrate=9600, parity="E", stopbits=2)
+        client = ModbusSerialClient("COM14", baudrate=115200, parity="E", stopbits=2)
         await client.connect()
         # transport, protocol = await serial_asyncio.create_serial_connection(
         #     asyncio.get_running_loop(),
@@ -368,17 +247,18 @@ if __name__ == "__main__":
         #     baudrate=9600, parity="E", stopbits=2)
         while True:
             try:
-                print(await client.read_holding_registers(1, 200, unit=1))
+                print(await client.read_holding_registers(1, 2, unit=1))
             except BaseException as e:
                 log.exception(e)
             try:
                 print(await client.write_single_register(random.choice([1, 2]), random.randint(1, 100), unit=1))
             except BaseException as e:
                 log.exception(e)
-            # transport.write(b"HI THERE")
-            # await asyncio.sleep(0.05)
-            # print("Am i blocked?")
-            # await asyncio.sleep(1)
+            try:
+                await client.write_multiple_registers(0, random.randint(1, 100), random.randint(1, 100),
+                                                      random.randint(1, 100), unit=1)
+            except BaseException as e:
+                log.exception(e)
 
 
     asyncio.run(main())
