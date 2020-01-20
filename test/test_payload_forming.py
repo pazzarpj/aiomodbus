@@ -22,7 +22,7 @@ def respond(protocol, arr):
 async def test_read_coils():
     client = aiomodbus.ModbusSerialClient("COM3", 9600, "N", 1)
     client.transport = MagicMock()
-    client.protocol = MagicMock()
+    client.protocol = aiomodbus.ModbusSerialProtocol()
     asyncio.get_event_loop().call_later(0.01, respond(client.protocol, b"\x11\x01\x05\xCD\x6B\xB2\x0E\x1B\x45\xE6"))
     resp = await client.read_coils(0x13, 0x25, unit=0x11)
     client.transport.write.assert_called_once_with(b"\x11\x01\x00\x13\x00\x25\x0E\x84")
@@ -35,7 +35,7 @@ async def test_read_coils():
 async def test_read_discrete_inputs():
     client = aiomodbus.ModbusSerialClient("COM3", 9600, "N", 1)
     client.transport = MagicMock()
-    client.protocol = MagicMock()
+    client.protocol = aiomodbus.ModbusSerialProtocol()
     asyncio.get_event_loop().call_later(0.01, respond(client.protocol, b"\x11\x02\x03\xAC\xDB\x35\x20\x18"))
     resp = await client.read_discrete_inputs(0xC4, 0x16, unit=0x11)
     client.transport.write.assert_called_once_with(b"\x11\x02\x00\xC4\x00\x16\xBA\xA9")

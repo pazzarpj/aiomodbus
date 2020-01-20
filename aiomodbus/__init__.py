@@ -159,6 +159,13 @@ class ModbusSerialClient:
             vals[ind // size] += bit << ind % size
         return vals
 
+    def _upack_bits(self, *values: int, size=8):
+        vals = []
+        for val in values:
+            for ind in range(size):
+                vals.append(bool((val >> ind) & 1))
+        return vals
+
     async def _request(self, unit, function_code, address, *values, request_packing, decode_packing,
                        packet_length):
         async with self.transaction:
@@ -171,8 +178,12 @@ class ModbusSerialClient:
             return values
 
     async def read_coils(self, address, count, *, unit=None, timeout=None):
-        function_code = 0x01
-        raise NotImplementedError
+        if unit is None:
+            unit = self.default_unit_id
+        resp = await self._request(unit, 0x01, address, count, request_packing=">BBHH",
+                                   decode_packing=">BBB" + "B" * (count // 8 + 1) + "H",
+                                   packet_length=5 + 1 * (count // 8 + 1))
+        return self._upack_bits(*resp[1:])[:count]
 
     async def read_discrete_inputs(self, address, count, *, unit=None, timeout=None):
         function_code = 0x02
