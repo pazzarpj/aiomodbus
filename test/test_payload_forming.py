@@ -60,7 +60,7 @@ async def test_read_input_registers():
     client.transport = MagicMock()
     client.protocol = aiomodbus.ModbusSerialProtocol()
     asyncio.get_event_loop().call_later(0.01, respond(client.protocol, b"\x11\x04\x02\x00\x0A\xF8\xF4"))
-    resp = await client.read_holding_registers(0x08, 0x1, unit=0x11)
+    resp = await client.read_input_registers(0x08, 0x1, unit=0x11)
     client.transport.write.assert_called_once_with(b"\x11\x04\x00\x08\x00\x01\xB2\x98")
     assert resp == [0xA]
 

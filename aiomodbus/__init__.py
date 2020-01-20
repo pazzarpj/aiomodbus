@@ -194,7 +194,6 @@ class ModbusSerialClient:
         return self._upack_bits(*resp[1:])[:count]
 
     async def read_holding_registers(self, address, count, *, unit=None, timeout=None):
-        # return await self._read_holding_registers.transaction(address, count, unit or self.default_unit_id, timeout)
         if unit is None:
             unit = self.default_unit_id
         resp = await self._request(unit, 0x03, address, count, request_packing=">BBHH",
@@ -202,8 +201,11 @@ class ModbusSerialClient:
         return resp[1:]
 
     async def read_input_registers(self, address, count, *, unit=None, timeout=None):
-        function_code = 0x04
-        raise NotImplementedError
+        if unit is None:
+            unit = self.default_unit_id
+        resp = await self._request(unit, 0x04, address, count, request_packing=">BBHH",
+                                   decode_packing=">BBBH" + "H" * count, packet_length=5 + 2 * count)
+        return resp[1:]
 
     async def write_single_coil(self, address, value, *, unit=None, timeout=None):
         function_code = 0x05
