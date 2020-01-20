@@ -166,8 +166,8 @@ class ModbusSerialClient:
                 vals.append(bool((val >> ind) & 1))
         return vals
 
-    async def _request(self, unit, function_code, address, *values, request_packing, decode_packing,
-                       packet_length):
+    async def _request(self, unit: int, function_code: int, address: int, *values: int, request_packing: str,
+                       decode_packing: str, packet_length: int):
         async with self.transaction:
             buf = self.protocol.buffer
             buf.clear()
@@ -177,7 +177,7 @@ class ModbusSerialClient:
             assert function_code == func_code
             return values
 
-    async def read_coils(self, address, count, *, unit=None, timeout=None):
+    async def read_coils(self, address: int, count: int, *, unit=None, timeout=None):
         if unit is None:
             unit = self.default_unit_id
         resp = await self._request(unit, 0x01, address, count, request_packing=">BBHH",
@@ -185,7 +185,7 @@ class ModbusSerialClient:
                                    packet_length=5 + 1 * (count // 8 + 1))
         return self._upack_bits(*resp[1:])[:count]
 
-    async def read_discrete_inputs(self, address, count, *, unit=None, timeout=None):
+    async def read_discrete_inputs(self, address: int, count: int, *, unit=None, timeout=None):
         if unit is None:
             unit = self.default_unit_id
         resp = await self._request(unit, 0x02, address, count, request_packing=">BBHH",
@@ -193,31 +193,35 @@ class ModbusSerialClient:
                                    packet_length=5 + 1 * (count // 8 + 1))
         return self._upack_bits(*resp[1:])[:count]
 
-    async def read_holding_registers(self, address, count, *, unit=None, timeout=None):
+    async def read_holding_registers(self, address: int, count: int, *, unit=None, timeout=None):
         if unit is None:
             unit = self.default_unit_id
         resp = await self._request(unit, 0x03, address, count, request_packing=">BBHH",
                                    decode_packing=">BBBH" + "H" * count, packet_length=5 + 2 * count)
         return resp[1:]
 
-    async def read_input_registers(self, address, count, *, unit=None, timeout=None):
+    async def read_input_registers(self, address: int, count: int, *, unit=None, timeout=None):
         if unit is None:
             unit = self.default_unit_id
         resp = await self._request(unit, 0x04, address, count, request_packing=">BBHH",
                                    decode_packing=">BBBH" + "H" * count, packet_length=5 + 2 * count)
         return resp[1:]
 
-    async def write_single_coil(self, address, value, *, unit=None, timeout=None):
-        function_code = 0x05
-        raise NotImplementedError
+    async def write_single_coil(self, address: int, value: bool, *, unit=None, timeout=None):
+        if unit is None:
+            unit = self.default_unit_id
+        if value:
+            value = 0xff00
+        await self._request(unit, 0x05, address, value, request_packing=">BBHH",
+                            decode_packing=">BBHHH", packet_length=8)
 
-    async def write_single_register(self, address, value, *, unit=None, timeout=None):
+    async def write_single_register(self, address: int, value: int, *, unit=None, timeout=None):
         if unit is None:
             unit = self.default_unit_id
         return await self._request(unit, 0x06, address, value, request_packing=">BBHH",
                                    decode_packing=">BBHHH", packet_length=8)
 
-    async def write_multiple_coils(self, address, *values: bool, unit=None, timeout=None):
+    async def write_multiple_coils(self, address: int, *values: bool, unit=None, timeout=None):
         if unit is None:
             unit = self.default_unit_id
         vals = self._pack_bits(*values)
@@ -225,7 +229,7 @@ class ModbusSerialClient:
                             request_packing=">BBHHB" + "B" * len(vals),
                             decode_packing=">BBHHH", packet_length=8)
 
-    async def write_multiple_registers(self, address, *values: int, unit=None, timeout=None):
+    async def write_multiple_registers(self, address: int, *values: int, unit=None, timeout=None):
         if unit is None:
             unit = self.default_unit_id
         await self._request(unit, 0x10, address, len(values), len(values) * 2, *values,
