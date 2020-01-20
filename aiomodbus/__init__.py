@@ -153,6 +153,12 @@ class ModbusSerialClient:
         packet.extend(struct.pack(">H", crc))
         return packet
 
+    def _pack_bits(self, *values: bool, size=8):
+        vals = [0] * (len(values) // size + 1)
+        for ind, bit in enumerate(values):
+            vals[ind // size] += bit << ind % size
+        return vals
+
     async def _request(self, unit, function_code, address, *values, request_packing, decode_packing,
                        packet_length):
         async with self.transaction:
@@ -194,11 +200,15 @@ class ModbusSerialClient:
         return await self._request(unit, 0x06, address, value, request_packing=">BBHH",
                                    decode_packing=">BBHHH", packet_length=8)
 
-    async def write_multiple_coils(self, address, *values, unit=None, timeout=None):
-        function_code = 0x0f
-        raise NotImplementedError
+    async def write_multiple_coils(self, address, *values: bool, unit=None, timeout=None):
+        if unit is None:
+            unit = self.default_unit_id
+        vals = self._pack_bits(*values)
+        await self._request(unit, 0x0f, address, len(values), len(vals), *vals,
+                            request_packing=">BBHHB" + "B" * len(vals),
+                            decode_packing=">BBHHH", packet_length=8)
 
-    async def write_multiple_registers(self, address, *values, unit=None, timeout=None):
+    async def write_multiple_registers(self, address, *values: int, unit=None, timeout=None):
         if unit is None:
             unit = self.default_unit_id
         await self._request(unit, 0x10, address, len(values), len(values) * 2, *values,
