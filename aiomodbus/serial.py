@@ -15,7 +15,7 @@ from dataclasses import dataclass
 import serial_asyncio
 
 import aiomodbus.crc
-from aiomodbus import modbus_exception_codes
+from aiomodbus.exceptions import modbus_exception_codes
 
 
 class ModbusSerialProtocol(asyncio.Protocol):
