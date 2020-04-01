@@ -4,7 +4,6 @@ from typing import Optional, Tuple
 import struct
 from dataclasses import dataclass
 from asyncio import transports
-from aiomodbus.exceptions import modbus_exception_codes
 from aiomodbus import decoders, encoders
 
 
@@ -26,7 +25,7 @@ class ModbusTcpProtocol(asyncio.Protocol):
     def data_received(self, data: bytes) -> None:
         header, payload = data[:8], data[8:]
         trans_id, protocol_id, length, unit_id, func_code = struct.unpack(">HHHBB", header)
-        fut = self.transactions[trans_id]
+        fut = self.transactions.get(trans_id)
         if fut:
             decoders.from_func_code(fut, func_code, payload)
 
@@ -46,6 +45,7 @@ class ModbusTCPClient:
     port: int = 502
     max_active_requests: Optional[int] = None
     default_unit_id: int = 0
+    default_timeout: float = 0.2
     transport: asyncio.Transport = None
     protocol: ModbusTcpProtocol = None
 
@@ -78,55 +78,57 @@ class ModbusTCPClient:
                 vals.append(bool((val >> ind) & 1))
         return vals
 
-    async def _request(self, unit: int, function_code: int, address: int, *values: int):
+    async def _request(self, unit: int, function_code: int, address: int, *values: int, timeout):
         trans_id, fut = self.protocol.new_transaction()
         # async with self.transaction:
         packet = self._encode_packet(unit, function_code, address, trans_id, *values)
         self.transport.write(packet)
-        await fut
+        timeout = timeout or self.default_timeout
+        try:
+            await asyncio.wait_for(fut, timeout)
+        finally:
+            self.protocol.transactions.pop(trans_id, None)
         return fut.result()
 
     async def read_coils(self, address: int, count: int, *, unit=None, timeout=None):
         if unit is None:
             unit = self.default_unit_id
-        resp = await self._request(unit, 0x01, address, count)
-        return self._upack_bits(*resp[1:])[:count]
+        return await self._request(unit, 0x01, address, count, timeout=timeout)
 
     async def read_discrete_inputs(self, address: int, count: int, *, unit=None, timeout=None):
         if unit is None:
             unit = self.default_unit_id
-        resp = await self._request(unit, 0x02, address, count)
-        return self._upack_bits(*resp[1:])[:count]
+        return await self._request(unit, 0x02, address, count, timeout=timeout)
 
     async def read_holding_registers(self, address: int, count: int, *, unit=None, timeout=None):
         if unit is None:
             unit = self.default_unit_id
-        return await self._request(unit, 0x03, address, count)
+        return await self._request(unit, 0x03, address, count, timeout=timeout)
 
     async def read_input_registers(self, address: int, count: int, *, unit=None, timeout=None):
         if unit is None:
             unit = self.default_unit_id
-        return await self._request(unit, 0x04, address, count)
+        return await self._request(unit, 0x04, address, count, timeout=timeout)
 
     async def write_single_coil(self, address: int, value: bool, *, unit=None, timeout=None):
         if unit is None:
             unit = self.default_unit_id
-        return await self._request(unit, 0x05, address, value)
+        return await self._request(unit, 0x05, address, value, timeout=timeout)
 
     async def write_single_register(self, address: int, value: int, *, unit=None, timeout=None):
         if unit is None:
             unit = self.default_unit_id
-        return await self._request(unit, 0x06, address, value)
+        return await self._request(unit, 0x06, address, value, timeout=timeout)
 
     async def write_multiple_coils(self, address: int, *values: bool, unit=None, timeout=None):
         if unit is None:
             unit = self.default_unit_id
-        return self._request(unit, 0x0f, address, *values)
+        return self._request(unit, 0x0f, address, *values, timeout=timeout)
 
     async def write_multiple_registers(self, address: int, *values: int, unit=None, timeout=None):
         if unit is None:
             unit = self.default_unit_id
-        return await self._request(unit, 0x10, address, *values)
+        return await self._request(unit, 0x10, address, *values, timeout=timeout)
 
     async def read_exception_status(self, unit=None, timeout=None):
         function_code = 0x07
