@@ -1,5 +1,4 @@
 import struct
-from aiomodbus.exceptions import modbus_exception_codes
 
 
 def _pack_words(address: int, *values: int) -> bytes:
@@ -38,5 +37,5 @@ function_codes = {
 }
 
 
-def from_func_code(func_code, address, data):
-    return function_codes[func_code](address, data)
+def from_func_code(func_code, address, *data):
+    return function_codes[func_code](address, *data)
