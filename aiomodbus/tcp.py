@@ -1,7 +1,7 @@
 import asyncio
 import threading
 import logging
-from typing import Optional, Tuple, Union
+from typing import Optional, Tuple, Union, Dict
 import struct
 from dataclasses import dataclass
 from asyncio import transports
@@ -16,7 +16,7 @@ class ModbusTcpProtocol(asyncio.Protocol):
     def __init__(self, client):
         self.client = client
         self.connected = asyncio.Event()
-        self.transactions = {}
+        self.transactions: Dict[str, asyncio.Future] = {}
         self._cnt_lock = threading.Lock()
         self.transaction_cnt = 0
 
@@ -38,6 +38,9 @@ class ModbusTcpProtocol(asyncio.Protocol):
     def connection_lost(self, exc: Optional[Exception]) -> None:
         self.connected.clear()
         if self.client.running:
+            for fut in self.transactions.values():
+                if not fut.done():
+                    fut.cancel()
             asyncio.create_task(self.client.connect())
 
     def new_transaction(self) -> Tuple[int, asyncio.Future]:
