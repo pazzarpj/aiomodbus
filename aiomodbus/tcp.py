@@ -74,10 +74,10 @@ class ModbusTCPClient:
         loop = asyncio._get_running_loop()
         while self.running:
             try:
-                self.transport, self.protocol = await loop.create_connection(lambda: ModbusTcpProtocol(self), self.host,
-                                                                             self.port)
+                self.transport, self.protocol = await asyncio.wait_for(
+                    loop.create_connection(lambda: ModbusTcpProtocol(self), self.host, self.port), 2)
                 return
-            except OSError as e:
+            except (OSError, asyncio.TimeoutError) as e:
                 if self.auto_reconnect_after:
                     log.warning(e)
                     await asyncio.sleep(self.auto_reconnect_after)
