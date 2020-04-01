@@ -12,6 +12,28 @@ Number = Union[int, float]
 log = logging.getLogger(__file__)
 
 
+@dataclass
+class TransactionLimit:
+    limit: Optional[int]
+
+    def __post_init__(self):
+        self.semaphore = None
+        if self.limit:
+            self.semaphore = asyncio.Semaphore(self.limit)
+
+    async def __aenter__(self):
+        if self.semaphore:
+            await self.semaphore.__aenter__()
+
+    def __await__(self):
+        if self.semaphore:
+            return self.semaphore.__await__()
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if self.semaphore:
+            await self.semaphore.__aexit__(exc_type, exc_val, exc_tb)
+
+
 class ModbusTcpProtocol(asyncio.Protocol):
     def __init__(self, client):
         self.client = client
@@ -60,10 +82,10 @@ class ModbusTCPClient:
     auto_reconnect_after: Optional[Number] = None
     transport: asyncio.Transport = None
     protocol: ModbusTcpProtocol = None
+    running: bool = True
 
     def __post_init__(self):
-        # self.transaction = asyncio.Semaphore()
-        self.running = True
+        self.transaction_limit = TransactionLimit(self.max_active_requests)
 
     async def connect(self):
         try:
@@ -111,16 +133,17 @@ class ModbusTCPClient:
             raise RuntimeError("Client is stopped")
         if not self.protocol or not self.protocol.connected.is_set():
             raise ConnectionError("Client isn't connected")
-        trans_id, fut = self.protocol.new_transaction()
-        # async with self.transaction:
-        packet = self._encode_packet(unit, function_code, address, trans_id, *values)
-        self.transport.write(packet)
-        timeout = timeout or self.default_timeout
-        try:
-            await asyncio.wait_for(fut, timeout)
-        finally:
-            self.protocol.transactions.pop(trans_id, None)
-        return fut.result()
+        async with self.transaction_limit:
+            trans_id, fut = self.protocol.new_transaction()
+            # async with self.transaction:
+            packet = self._encode_packet(unit, function_code, address, trans_id, *values)
+            self.transport.write(packet)
+            timeout = timeout or self.default_timeout
+            try:
+                await asyncio.wait_for(fut, timeout)
+            finally:
+                self.protocol.transactions.pop(trans_id, None)
+            return fut.result()
 
     async def read_coils(self, address: int, count: int, *, unit=None, timeout=None):
         return await self._request(unit, 0x01, address, count, timeout=timeout)
