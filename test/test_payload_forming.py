@@ -6,6 +6,7 @@ import asyncio
 
 import aiomodbus.exceptions
 import aiomodbus.serial
+import aiomodbus.tcp
 
 
 def async_return(result):
@@ -74,7 +75,7 @@ async def test_read_discrete_inputs(mock_sleep):
 
 
 @pytest.mark.asyncio
-async def test_read_holding_registers(mock_sleep):
+async def test_rtu_read_holding_registers(mock_sleep):
     client = aiomodbus.serial.ModbusSerialClient("COM3", 9600, "N", 1)
     client.transport = MagicMock()
     client.protocol = aiomodbus.serial.ModbusSerialProtocol()
@@ -86,7 +87,20 @@ async def test_read_holding_registers(mock_sleep):
 
 
 @pytest.mark.asyncio
-async def test_read_input_registers(mock_sleep):
+async def test_tcp_read_holding_registers(mock_sleep):
+    client = aiomodbus.tcp.ModbusTCPClient("127.0.0.1", 502)
+    client.transport = MagicMock()
+    client.protocol = aiomodbus.tcp.ModbusTcpProtocol()
+    fut = asyncio.create_task(client.read_holding_registers(0x6b, 0x3, unit=0x11))
+    asyncio.get_event_loop().call_soon(
+        respond(client.protocol, b"\x00\x01\x00\x00\x00\x09\x11\x03\x06\xAE\x41\x56\x52\x43\x40"))
+    await fut
+    client.transport.write.assert_called_once_with(b"\x00\x01\x00\x00\x00\x06\x11\x03\x00\x6b\x00\x03")
+    assert fut.result() == (0xAE41, 0x5652, 0x4340)
+
+
+@pytest.mark.asyncio
+async def test_rtu_read_input_registers(mock_sleep):
     client = aiomodbus.serial.ModbusSerialClient("COM3", 9600, "N", 1)
     client.transport = MagicMock()
     client.protocol = aiomodbus.serial.ModbusSerialProtocol()
@@ -98,7 +112,19 @@ async def test_read_input_registers(mock_sleep):
 
 
 @pytest.mark.asyncio
-async def test_write_coil(mock_sleep):
+async def test_tcp_read_input_registers(mock_sleep):
+    client = aiomodbus.tcp.ModbusTCPClient("127.0.0.1", 502)
+    client.transport = MagicMock()
+    client.protocol = aiomodbus.tcp.ModbusTcpProtocol()
+    fut = asyncio.create_task(client.read_input_registers(0x08, 0x1, unit=0x11))
+    asyncio.get_event_loop().call_soon(respond(client.protocol, b"\x00\x01\x00\x00\x00\x05\x11\x04\x02\x00\x0A"))
+    await fut
+    client.transport.write.assert_called_once_with(b"\x00\x01\x00\x00\x00\x06\x11\x04\x00\x08\x00\x01")
+    assert fut.result() == (0xA,)
+
+
+@pytest.mark.asyncio
+async def test_rtu_write_coil(mock_sleep):
     client = aiomodbus.serial.ModbusSerialClient("COM3", 9600, "N", 1)
     client.transport = MagicMock()
     client.protocol = aiomodbus.serial.ModbusSerialProtocol()
@@ -107,6 +133,15 @@ async def test_write_coil(mock_sleep):
     await fut
     client.transport.write.assert_called_once_with(b"\x11\x05\x00\xAC\xFF\x00\x4E\x8B")
 
+@pytest.mark.asyncio
+async def test_tcp_write_coil(mock_sleep):
+    client = aiomodbus.tcp.ModbusTCPClient("127.0.0.1", 502)
+    client.transport = MagicMock()
+    client.protocol = aiomodbus.tcp.ModbusTcpProtocol()
+    fut = asyncio.create_task(client.write_single_coil(0xAC, True, unit=0x11))
+    asyncio.get_event_loop().call_soon(respond(client.protocol, b"\x00\x01\x00\x00\x00\x06\x11\x05\x00\xAC\xFF\x00"))
+    await fut
+    client.transport.write.assert_called_once_with(b"\x00\x01\x00\x00\x00\x06\x11\x05\x00\xAC\xFF\x00")
 
 @pytest.mark.asyncio
 async def test_write_register(mock_sleep):
