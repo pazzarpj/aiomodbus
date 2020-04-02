@@ -43,7 +43,7 @@ setup(
     author="Ryan Parry-Jones",
     author_email="ryanspj+github@gmail.com",
     description="Lightweight Modbus library using asyncio",
-    packages=find_packages(''),
+    packages=['aiomodbus'],
     scripts=[],
     version=get_version(),
     install_requires=get_requires(),
