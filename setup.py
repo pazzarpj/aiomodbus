@@ -52,7 +52,7 @@ setup(
     zip_safe=False,
     classifiers=[
         "Intended Audience :: Manufacturing",
-        "Intended Audience :: Telecommunications Industry"
+        "Intended Audience :: Telecommunications Industry",
         "Operating System :: OS Independent",
         "Programming Language :: Python :: 3 :: Only",
         "Programming Language :: Python :: 3.6",
