@@ -37,7 +37,6 @@ class TransactionLimit:
 class ModbusTcpProtocol(asyncio.Protocol):
     def __init__(self, client):
         self.client = client
-        self.connected = asyncio.Event()
         self.transactions: Dict[str, asyncio.Future] = {}
         self._cnt_lock = threading.Lock()
         self.transaction_cnt = 0
@@ -48,7 +47,7 @@ class ModbusTcpProtocol(asyncio.Protocol):
             return self.transaction_cnt
 
     def connection_made(self, transport: transports.BaseTransport) -> None:
-        self.connected.set()
+        self.client.connected.set()
 
     def data_received(self, data: bytes) -> None:
         header, payload = data[:8], data[8:]
@@ -58,7 +57,7 @@ class ModbusTcpProtocol(asyncio.Protocol):
             decoders.from_func_code(fut, func_code, payload)
 
     def connection_lost(self, exc: Optional[Exception]) -> None:
-        self.connected.clear()
+        self.client.connected.clear()
         if self.client.running:
             for fut in self.transactions.values():
                 if not fut.done():
@@ -86,10 +85,11 @@ class ModbusTCPClient:
 
     def __post_init__(self):
         self.transaction_limit = TransactionLimit(self.max_active_requests)
+        self.connected = asyncio.Event()
 
     async def connect(self):
         try:
-            if self.protocol.connected.is_set():
+            if self.connected.is_set():
                 return
         except AttributeError:
             pass
@@ -131,7 +131,7 @@ class ModbusTCPClient:
             unit = self.default_unit_id
         if not self.running:
             raise RuntimeError("Client is stopped")
-        if not self.protocol or not self.protocol.connected.is_set():
+        if not self.connected.is_set():
             raise ConnectionError("Client isn't connected")
         async with self.transaction_limit:
             trans_id, fut = self.protocol.new_transaction()

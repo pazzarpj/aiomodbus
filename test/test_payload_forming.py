@@ -91,7 +91,7 @@ async def test_tcp_read_holding_registers(mock_sleep):
     client = aiomodbus.tcp.ModbusTCPClient("127.0.0.1", 502)
     client.transport = MagicMock()
     client.protocol = aiomodbus.tcp.ModbusTcpProtocol(client)
-    client.protocol.connected.set()
+    client.connected.set()
     fut = asyncio.create_task(client.read_holding_registers(0x6b, 0x3, unit=0x11))
     asyncio.get_event_loop().call_soon(
         respond(client.protocol, b"\x00\x01\x00\x00\x00\x09\x11\x03\x06\xAE\x41\x56\x52\x43\x40"))
@@ -117,7 +117,7 @@ async def test_tcp_read_input_registers(mock_sleep):
     client = aiomodbus.tcp.ModbusTCPClient("127.0.0.1", 502)
     client.transport = MagicMock()
     client.protocol = aiomodbus.tcp.ModbusTcpProtocol(client)
-    client.protocol.connected.set()
+    client.connected.set()
     fut = asyncio.create_task(client.read_input_registers(0x08, 0x1, unit=0x11))
     asyncio.get_event_loop().call_soon(respond(client.protocol, b"\x00\x01\x00\x00\x00\x05\x11\x04\x02\x00\x0A"))
     await fut
@@ -140,7 +140,7 @@ async def test_tcp_write_coil(mock_sleep):
     client = aiomodbus.tcp.ModbusTCPClient("127.0.0.1", 502)
     client.transport = MagicMock()
     client.protocol = aiomodbus.tcp.ModbusTcpProtocol(client)
-    client.protocol.connected.set()
+    client.connected.set()
     fut = asyncio.create_task(client.write_single_coil(0xAC, True, unit=0x11))
     asyncio.get_event_loop().call_soon(respond(client.protocol, b"\x00\x01\x00\x00\x00\x06\x11\x05\x00\xAC\xFF\x00"))
     await fut
