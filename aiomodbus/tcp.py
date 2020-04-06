@@ -179,4 +179,7 @@ class ModbusTCPClient:
 
     def stop(self):
         self.running = False
-        self.transport.close()
+        if self.transport:
+            self.transport.close()
+
+    disconnect = stop
