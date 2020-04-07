@@ -102,8 +102,10 @@ class ModbusTCPClient:
             except (OSError, asyncio.TimeoutError) as e:
                 if self.auto_reconnect_after:
                     log.warning(e)
+                    log.info("Reconnecting to ModbusTCP")
                     await asyncio.sleep(self.auto_reconnect_after)
                 else:
+                    log.exception(e)
                     raise
 
     def _encode_packet(self, unit, function_code, address, trans_id, *values) -> bytearray:
