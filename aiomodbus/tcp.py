@@ -87,8 +87,8 @@ class ModbusTCPClient:
     running: bool = True
 
     def __post_init__(self):
-        self.transaction_limit = TransactionLimit(self.max_active_requests)
         self.connected = asyncio.Event()
+        self.transaction_limit = TransactionLimit(self.max_active_requests, self.connected)
 
     async def connect(self):
         try:
