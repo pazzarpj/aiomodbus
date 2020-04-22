@@ -14,7 +14,8 @@ log = logging.getLogger(__file__)
 
 @dataclass
 class TransactionLimit:
-    limit: Optional[int]
+    limit: Optional[int] = None
+    evt_connected: Optional[asyncio.Event] = None
 
     def __post_init__(self):
         self.semaphore = None
@@ -22,6 +23,8 @@ class TransactionLimit:
             self.semaphore = asyncio.Semaphore(self.limit)
 
     async def __aenter__(self):
+        if self.evt_connected:
+            await self.evt_connected.wait()
         if self.semaphore:
             await self.semaphore.__aenter__()
 
@@ -107,6 +110,9 @@ class ModbusTCPClient:
                 else:
                     log.exception(e)
                     raise
+            except BaseException as e:
+                log.exception(e)
+                raise
 
     def _encode_packet(self, unit, function_code, address, trans_id, *values) -> bytearray:
         packet = bytearray()
