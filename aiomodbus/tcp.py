@@ -16,6 +16,7 @@ log = logging.getLogger(__file__)
 class TransactionLimit:
     limit: Optional[int] = None
     evt_connected: Optional[asyncio.Event] = None
+    evt_connected_timeout: float = 2
 
     def __post_init__(self):
         self.semaphore = None
@@ -24,7 +25,10 @@ class TransactionLimit:
 
     async def __aenter__(self):
         if self.evt_connected:
-            await self.evt_connected.wait()
+            try:
+                await asyncio.wait_for(self.evt_connected.wait(), self.evt_connected_timeout)
+            except asyncio.TimeoutError:
+                raise ConnectionError("Client isn't connected")
         if self.semaphore:
             await self.semaphore.__aenter__()
 
@@ -139,8 +143,6 @@ class ModbusTCPClient:
             unit = self.default_unit_id
         if not self.running:
             raise RuntimeError("Client is stopped")
-        if not self.connected.is_set():
-            raise ConnectionError("Client isn't connected")
         async with self.transaction_limit:
             trans_id, fut = self.protocol.new_transaction()
             # async with self.transaction:
