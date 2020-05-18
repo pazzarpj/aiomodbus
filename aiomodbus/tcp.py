@@ -54,7 +54,7 @@ class ModbusTcpProtocol(asyncio.Protocol):
             return self.transaction_cnt
 
     def connection_made(self, transport: transports.BaseTransport) -> None:
-        self.client.connected.set()
+        log.info(f"Modbus Client connected at {self.client.host}")
 
     def data_received(self, data: bytes) -> None:
         header, payload = data[:8], data[8:]
@@ -65,6 +65,7 @@ class ModbusTcpProtocol(asyncio.Protocol):
 
     def connection_lost(self, exc: Optional[Exception]) -> None:
         self.client.connected.clear()
+        log.info(f"Modbus Client disconnected from {self.client.host}")
         if self.client.running:
             for fut in self.transactions.values():
                 if not fut.done():
@@ -105,6 +106,7 @@ class ModbusTCPClient:
             try:
                 self.transport, self.protocol = await asyncio.wait_for(
                     loop.create_connection(lambda: ModbusTcpProtocol(self), self.host, self.port), 2)
+                self.connected.set()
                 return
             except (OSError, asyncio.TimeoutError) as e:
                 if self.auto_reconnect_after:
@@ -145,7 +147,6 @@ class ModbusTCPClient:
             raise RuntimeError("Client is stopped")
         async with self.transaction_limit:
             trans_id, fut = self.protocol.new_transaction()
-            # async with self.transaction:
             packet = self._encode_packet(unit, function_code, address, trans_id, *values)
             self.transport.write(packet)
             timeout = timeout or self.default_timeout
