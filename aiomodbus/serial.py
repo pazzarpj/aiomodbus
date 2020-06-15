@@ -9,10 +9,8 @@ Source www.modbus.org Modbus_over_serial_line_V1.02 2006
 """
 import asyncio
 import struct
-from concurrent.futures._base import TimeoutError
 from dataclasses import dataclass
 from aiomodbus import decoders, encoders
-import threading
 import serial_asyncio
 
 import aiomodbus.crc
@@ -26,6 +24,7 @@ class ModbusSerialProtocol(asyncio.Protocol):
         self.current_request = None
         self.recv_callback = None
         self.q = asyncio.Queue()
+        self.buffer = bytearray()
         self.loop = asyncio.get_event_loop()
         self.byte_time = byte_time
 
@@ -37,26 +36,28 @@ class ModbusSerialProtocol(asyncio.Protocol):
         self.client.connected.set()
 
     def data_received(self, data):
-        self.q.put_nowait(data)
+        self.buffer.extend(data)
+        self.q.put_nowait(None)
 
-    async def decode(self, packet_length: int, decode_packing: str, turn_around_delay_timeout: float = 0.4):
-        buffer = bytearray()
-        buffer.extend(await asyncio.wait_for(self.q.get(), turn_around_delay_timeout))
-        end = self.loop.time() + self.byte_time * packet_length
+    async def decode(self, packet_length: int, decode_packing: str, turn_around_delay_timeout: float = 0.4) -> tuple:
+        await asyncio.wait_for(self.q.get(), turn_around_delay_timeout)
+        resp = await asyncio.wait_for(self.build_decode(packet_length, decode_packing), self.byte_time * packet_length)
         while True:
-            if len(buffer) >= 5:
-                if buffer[1] & 0x80:
-                    raise modbus_exception_codes[buffer[2]]
-            if len(buffer) >= packet_length:
-                aiomodbus.crc.check_crc(buffer[:packet_length])
-                return struct.unpack(decode_packing, buffer[:packet_length])
-            t = end - self.loop.time()
-            if t < 0:
-                raise TimeoutError
             try:
-                buffer.extend(self.q.get_nowait())
+                self.q.get_nowait()
             except asyncio.QueueEmpty:
-                await asyncio.sleep(0)
+                break
+        return resp
+
+    async def build_decode(self, packet_length: int, decode_packing: str) -> tuple:
+        while True:
+            await self.q.get()
+            if len(self.buffer) >= 5:
+                if self.buffer[1] & 0x80:
+                    raise modbus_exception_codes[self.buffer[2]]
+            if len(self.buffer) >= packet_length:
+                aiomodbus.crc.check_crc(self.buffer[:packet_length])
+                return struct.unpack(decode_packing, self.buffer[:packet_length])
 
     def connection_lost(self, exc):
         self.transport.loop.stop()
@@ -119,8 +120,8 @@ class ModbusSerialClient:
             self.transport.serial.flushInput()
             self.transport.serial.flushOutput()
             packet = self._encode_packet(unit, function_code, address, *values)
+            self.protocol.buffer.clear()
             self.transport.write(packet)
-            await asyncio.sleep(self.byte_time * len(packet))
             unit_id, func_code, *values, crc = await self.protocol.decode(packet_length, decode_packing)
             assert unit_id == unit
             assert function_code == func_code
