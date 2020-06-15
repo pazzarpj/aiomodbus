@@ -51,13 +51,13 @@ class ModbusSerialProtocol(asyncio.Protocol):
 
     async def build_decode(self, packet_length: int, decode_packing: str) -> tuple:
         while True:
-            await self.q.get()
             if len(self.buffer) >= 5:
                 if self.buffer[1] & 0x80:
                     raise modbus_exception_codes[self.buffer[2]]
             if len(self.buffer) >= packet_length:
                 aiomodbus.crc.check_crc(self.buffer[:packet_length])
                 return struct.unpack(decode_packing, self.buffer[:packet_length])
+            await self.q.get()
 
     def connection_lost(self, exc):
         self.transport.loop.stop()
