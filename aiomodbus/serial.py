@@ -12,7 +12,7 @@ import struct
 from concurrent.futures._base import TimeoutError
 from dataclasses import dataclass
 from aiomodbus import decoders, encoders
-
+import threading
 import serial_asyncio
 
 import aiomodbus.crc
@@ -53,8 +53,10 @@ class ModbusSerialProtocol(asyncio.Protocol):
             t = end - self.loop.time()
             if t < 0:
                 raise TimeoutError
-            buffer.extend(await asyncio.wait_for(self.q.get(), t))
-            self.q.task_done()
+            try:
+                buffer.extend(self.q.get_nowait())
+            except asyncio.QueueEmpty:
+                await asyncio.sleep(0)
 
     def connection_lost(self, exc):
         self.transport.loop.stop()
