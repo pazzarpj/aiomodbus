@@ -20,12 +20,14 @@ from aiomodbus.exceptions import modbus_exception_codes
 
 
 class ModbusSerialProtocol(asyncio.Protocol):
-    def __init__(self, client):
+    def __init__(self, client, byte_time):
         self.transport = None
         self.client = client
         self.current_request = None
         self.recv_callback = None
         self.q = asyncio.Queue()
+        self.loop = asyncio.get_event_loop()
+        self.byte_time = byte_time
 
     def connection_made(self, transport):
         self.transport = transport
@@ -40,6 +42,7 @@ class ModbusSerialProtocol(asyncio.Protocol):
     async def decode(self, packet_length: int, decode_packing: str, turn_around_delay_timeout: float = 0.4):
         buffer = bytearray()
         buffer.extend(await asyncio.wait_for(self.q.get(), turn_around_delay_timeout))
+        end = self.loop.time() + self.byte_time * packet_length
         while True:
             if len(buffer) >= 5:
                 if buffer[1] & 0x80:
@@ -47,7 +50,11 @@ class ModbusSerialProtocol(asyncio.Protocol):
             if len(buffer) >= packet_length:
                 aiomodbus.crc.check_crc(buffer[:packet_length])
                 return struct.unpack(decode_packing, buffer[:packet_length])
-            buffer.extend(await asyncio.wait_for(self.q.get(), 0.1))
+            t = end - self.loop.time()
+            if t < 0:
+                raise TimeoutError
+            buffer.extend(await asyncio.wait_for(self.q.get(), t))
+            self.q.task_done()
 
     def connection_lost(self, exc):
         self.transport.loop.stop()
@@ -75,7 +82,8 @@ class ModbusSerialClient:
     async def connect(self):
         self.transport, self.protocol = await serial_asyncio.create_serial_connection(
             asyncio.get_running_loop(),
-            lambda: ModbusSerialProtocol(self), url=self.port, baudrate=self.baudrate, parity=self.parity,
+            lambda: ModbusSerialProtocol(self, self.byte_time), url=self.port, baudrate=self.baudrate,
+            parity=self.parity,
             stopbits=self.stopbits,
             bytesize=self.bytesize)
         await self.connected.wait()
