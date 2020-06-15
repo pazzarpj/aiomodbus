@@ -25,8 +25,7 @@ class ModbusSerialProtocol(asyncio.Protocol):
         self.client = client
         self.current_request = None
         self.recv_callback = None
-        self.buffer = bytearray()
-        self.evt = asyncio.Event()
+        self.q = asyncio.Queue()
 
     def connection_made(self, transport):
         self.transport = transport
@@ -36,30 +35,19 @@ class ModbusSerialProtocol(asyncio.Protocol):
         self.client.connected.set()
 
     def data_received(self, data):
-        self.buffer.extend(data)
-        self.evt.clear()
-        self.evt.set()
+        self.q.put_nowait(data)
 
-    async def decode(self, packet_length, decode_packing, turn_around_delay_timeout=0.4):
-        timeout = 0
-        if turn_around_delay_timeout:
-            await asyncio.wait_for(self.evt.wait(), turn_around_delay_timeout)
-        else:
-            await self.evt.wait()
+    async def decode(self, packet_length: int, decode_packing: str, turn_around_delay_timeout: float = 0.4):
+        buffer = bytearray()
+        buffer.extend(await asyncio.wait_for(self.q.get(), turn_around_delay_timeout))
         while True:
-            if len(self.buffer) >= 5:
-                if self.buffer[1] & 0x80:
-                    raise modbus_exception_codes[self.buffer[2]]
-            if len(self.buffer) >= packet_length:
-                aiomodbus.crc.check_crc(self.buffer[:packet_length])
-                return struct.unpack(decode_packing, self.buffer[:packet_length])
-            try:
-                await asyncio.wait_for(self.evt.wait(), 0.01)
-                timeout = 0
-            except TimeoutError:
-                timeout += 0.01
-                if timeout >= 0.1:
-                    raise
+            if len(buffer) >= 5:
+                if buffer[1] & 0x80:
+                    raise modbus_exception_codes[buffer[2]]
+            if len(buffer) >= packet_length:
+                aiomodbus.crc.check_crc(buffer[:packet_length])
+                return struct.unpack(decode_packing, buffer[:packet_length])
+            buffer.extend(await asyncio.wait_for(self.q.get(), 0.1))
 
     def connection_lost(self, exc):
         self.transport.loop.stop()
@@ -120,11 +108,8 @@ class ModbusSerialClient:
             await asyncio.sleep(self.byte_time * 2.5)
             self.transport.serial.flushInput()
             self.transport.serial.flushOutput()
-            buf = self.protocol.buffer
-            buf.clear()
             packet = self._encode_packet(unit, function_code, address, *values)
             self.transport.write(packet)
-            self.protocol.evt.clear()
             await asyncio.sleep(self.byte_time * len(packet))
             unit_id, func_code, *values, crc = await self.protocol.decode(packet_length, decode_packing)
             assert unit_id == unit
