@@ -157,10 +157,12 @@ class ModbusTCPClient:
             return fut.result()
 
     async def read_coils(self, address: int, count: int, *, unit=None, timeout=None):
-        return await self._request(unit, 0x01, address, count, timeout=timeout)
+        req = await self._request(unit, 0x01, address, count, timeout=timeout)
+        return req[:count]
 
     async def read_discrete_inputs(self, address: int, count: int, *, unit=None, timeout=None):
-        return await self._request(unit, 0x02, address, count, timeout=timeout)
+        req = await self._request(unit, 0x02, address, count, timeout=timeout)
+        return req[:count]
 
     async def read_holding_registers(self, address: int, count: int, *, unit=None, timeout=None):
         return await self._request(unit, 0x03, address, count, timeout=timeout)
@@ -175,7 +177,7 @@ class ModbusTCPClient:
         return await self._request(unit, 0x06, address, value, timeout=timeout)
 
     async def write_multiple_coils(self, address: int, *values: bool, unit=None, timeout=None):
-        return self._request(unit, 0x0f, address, *values, timeout=timeout)
+        return await self._request(unit, 0x0f, address, *values, timeout=timeout)
 
     async def write_multiple_registers(self, address: int, *values: int, unit=None, timeout=None):
         return await self._request(unit, 0x10, address, *values, timeout=timeout)
