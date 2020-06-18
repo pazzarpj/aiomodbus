@@ -18,7 +18,7 @@ from aiomodbus.exceptions import modbus_exception_codes
 
 
 class ModbusSerialProtocol(asyncio.Protocol):
-    def __init__(self, client, byte_time):
+    def __init__(self, client):
         self.transport = None
         self.client = client
         self.current_request = None
@@ -26,13 +26,11 @@ class ModbusSerialProtocol(asyncio.Protocol):
         self.q = asyncio.Queue()
         self.buffer = bytearray()
         self.loop = asyncio.get_event_loop()
-        self.byte_time = byte_time
 
-    def connection_made(self, transport):
+    def connection_made(self, transport: serial_asyncio.SerialTransport):
         self.transport = transport
-        # self.transport.serial.inter_byte_timeout = 0.1
-        self.transport.serial.flushInput()
-        self.transport.serial.flushOutput()
+        self.byte_time = 1 / (
+                transport.serial.baudrate / (transport.serial.bytesize + transport.serial.stopbits + 1) / 1.5)
         self.client.connected.set()
 
     def data_received(self, data):
@@ -40,14 +38,19 @@ class ModbusSerialProtocol(asyncio.Protocol):
         self.q.put_nowait(None)
 
     async def decode(self, packet_length: int, decode_packing: str, turn_around_delay_timeout: float = 0.4) -> tuple:
-        await asyncio.wait_for(self.q.get(), turn_around_delay_timeout)
-        resp = await asyncio.wait_for(self.build_decode(packet_length, decode_packing), self.byte_time * packet_length)
+        try:
+            await asyncio.wait_for(self.q.get(), turn_around_delay_timeout)
+            return await asyncio.wait_for(self.build_decode(packet_length, decode_packing),
+                                          self.byte_time * packet_length)
+        finally:
+            self.empty_queue()
+
+    def empty_queue(self):
         while True:
             try:
                 self.q.get_nowait()
             except asyncio.QueueEmpty:
                 break
-        return resp
 
     async def build_decode(self, packet_length: int, decode_packing: str) -> tuple:
         while True:
@@ -79,13 +82,12 @@ class ModbusSerialClient:
         self.transaction = asyncio.Lock()
         self.t_1_5 = None
         self.t_3_5 = None
-        self.byte_time = 1 / (self.baudrate / (self.bytesize + self.stopbits + 1) / 1.5)
         self.connected = asyncio.Event()
 
     async def connect(self):
         self.transport, self.protocol = await serial_asyncio.create_serial_connection(
             asyncio.get_running_loop(),
-            lambda: ModbusSerialProtocol(self, self.byte_time), url=self.port, baudrate=self.baudrate,
+            lambda: ModbusSerialProtocol(self), url=self.port, baudrate=self.baudrate,
             parity=self.parity,
             stopbits=self.stopbits,
             bytesize=self.bytesize)
@@ -116,9 +118,7 @@ class ModbusSerialClient:
         if unit is None:
             unit = self.default_unit_id
         async with self.transaction:
-            await asyncio.sleep(self.byte_time * 2.5)
-            self.transport.serial.flushInput()
-            self.transport.serial.flushOutput()
+            await asyncio.sleep(self.protocol.byte_time * 2.5)
             packet = self._encode_packet(unit, function_code, address, *values)
             self.protocol.buffer.clear()
             self.transport.write(packet)

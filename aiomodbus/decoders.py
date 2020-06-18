@@ -2,12 +2,12 @@ import struct
 from aiomodbus.exceptions import modbus_exception_codes
 
 
-def _unpack_bits(data):
-    size, = struct.unpack(">B", data[0])
-    values = struct.unpack(">B" * size, data[1:])
+def _unpack_bits(data, bytesize=8):
+    size, = struct.unpack(">B", data[0:1])
+    values = struct.unpack(">" + "B" * size, data[1:])
     vals = []
     for val in values:
-        for ind in range(size):
+        for ind in range(bytesize):
             vals.append(bool((val >> ind) & 1))
     return vals
 
