@@ -119,15 +119,15 @@ async def test_write_coils(mock_sleep, client):
     fut = asyncio.create_task(
         client.write_multiple_coils(0x13, True, False, True, True, False, False, True, True, True, False, unit=0x11))
     await fut
-    client.transport.write.assert_called_once_with(b"\x00\x01\x00\x00\x00\x06\x11\x0F\x00\x13\x00\x0A\x02\xCD\x01")
+    client.transport.write.assert_called_once_with(b"\x00\x01\x00\x00\x00\x09\x11\x0F\x00\x13\x00\x0A\x02\xCD\x01")
 
 
 @pytest.mark.asyncio
 async def test_write_registers(mock_sleep, client):
-    client.transport.write.side_effect = respond(client.protocol, b"\x11\x10\x00\x01\x00\x02\x12\x98")
+    client.transport.write.side_effect = respond(client.protocol, b"\x00\x01\x00\x00\x00\x06\x11\x10\x00\x01\x00\x02")
     fut = asyncio.create_task(client.write_multiple_registers(0x01, 0xA, 0x102, unit=0x11))
     await fut
-    client.transport.write.assert_called_once_with(b"\x11\x10\x00\x01\x00\x02\x04\x00\x0A\x01\x02\xC6\xF0")
+    client.transport.write.assert_called_once_with(b"\x00\x01\x00\x00\x00\x0b\x11\x10\x00\x01\x00\x02\x04\x00\x0A\x01\x02")
 
 
 @pytest.mark.parametrize("exceptioncls,exception_code", [
