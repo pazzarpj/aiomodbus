@@ -127,19 +127,6 @@ class ModbusTCPClient:
         packet.extend(data)
         return packet
 
-    def _pack_bits(self, *values: bool, size=8):
-        vals = [0] * (len(values) // size + 1)
-        for ind, bit in enumerate(values):
-            vals[ind // size] += bit << ind % size
-        return vals
-
-    def _upack_bits(self, *values: int, size=8):
-        vals = []
-        for val in values:
-            for ind in range(size):
-                vals.append(bool((val >> ind) & 1))
-        return vals
-
     async def _request(self, unit: int, function_code: int, address: int, *values: int, timeout):
         if unit is None:
             unit = self.default_unit_id
