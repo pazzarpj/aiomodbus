@@ -127,7 +127,8 @@ async def test_write_registers(mock_sleep, client):
     client.transport.write.side_effect = respond(client.protocol, b"\x00\x01\x00\x00\x00\x06\x11\x10\x00\x01\x00\x02")
     fut = asyncio.create_task(client.write_multiple_registers(0x01, 0xA, 0x102, unit=0x11))
     await fut
-    client.transport.write.assert_called_once_with(b"\x00\x01\x00\x00\x00\x0b\x11\x10\x00\x01\x00\x02\x04\x00\x0A\x01\x02")
+    client.transport.write.assert_called_once_with(
+        b"\x00\x01\x00\x00\x00\x0b\x11\x10\x00\x01\x00\x02\x04\x00\x0A\x01\x02")
 
 
 @pytest.mark.parametrize("exceptioncls,exception_code", [
@@ -145,4 +146,20 @@ async def test_write_registers(mock_sleep, client):
 ])
 @pytest.mark.asyncio
 async def test_exceptions(exceptioncls, exception_code, mock_sleep, client):
-    client = client
+    resp = bytearray(b"\x00\x01\x00\x00\x00\x03\x11\x83")
+    resp.append(exception_code)
+    client.transport.write.side_effect = respond(client.protocol, bytes(resp))
+    with pytest.raises(exceptioncls):
+        await client.read_holding_registers(0x6b, 0x3, unit=0x11)
+
+
+@pytest.mark.asyncio
+async def test_read_exception_status(client):
+    with pytest.raises(NotImplementedError):
+        await client.read_exception_status()
+
+
+@pytest.mark.asyncio
+async def test_diagnostics(client):
+    with pytest.raises(NotImplementedError):
+        await client.diagnostics(None)
