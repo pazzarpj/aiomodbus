@@ -37,11 +37,12 @@ class ModbusSerialProtocol(asyncio.Protocol):
         self.buffer.extend(data)
         self.q.put_nowait(None)
 
-    async def decode(self, packet_length: int, decode_packing: str, turn_around_delay_timeout: float = 0.4) -> tuple:
+    async def decode(self, packet_length: int, decode_packing: str, turn_around_delay_timeout: float = 0.4,
+                     timeout: float = 0.1) -> tuple:
         try:
             await asyncio.wait_for(self.q.get(), turn_around_delay_timeout)
             return await asyncio.wait_for(self.build_decode(packet_length, decode_packing),
-                                          self.byte_time * packet_length)
+                                          self.byte_time * packet_length + timeout)
         finally:
             self.empty_queue()
 
@@ -113,8 +114,8 @@ class ModbusSerialClient:
                 vals.append(bool((val >> ind) & 1))
         return vals
 
-    async def _request(self, unit: int, function_code: int, address: int, *values: int, request_packing: str,
-                       decode_packing: str, packet_length: int):
+    async def _request(self, unit: int, function_code: int, address: int, *values: int, decode_packing: str,
+                       packet_length: int, timeout: float = 0.1):
         if unit is None:
             unit = self.default_unit_id
         async with self.transaction:
@@ -122,52 +123,46 @@ class ModbusSerialClient:
             packet = self._encode_packet(unit, function_code, address, *values)
             self.protocol.buffer.clear()
             self.transport.write(packet)
-            unit_id, func_code, *values, crc = await self.protocol.decode(packet_length, decode_packing)
+            unit_id, func_code, *values, crc = await self.protocol.decode(packet_length, decode_packing,
+                                                                          timeout=timeout)
             assert unit_id == unit
             assert function_code == func_code
             return values
 
-    async def read_coils(self, address: int, count: int, *, unit=None, timeout=None):
-        resp = await self._request(unit, 0x01, address, count, request_packing=">BBHH",
-                                   decode_packing=">BBB" + "B" * (count // 8 + 1) + "H",
-                                   packet_length=5 + 1 * (count // 8 + 1))
+    async def read_coils(self, address: int, count: int, *, unit=None, timeout: float = 0.1):
+        resp = await self._request(unit, 0x01, address, count, decode_packing=">BBB" + "B" * (count // 8 + 1) + "H",
+                                   packet_length=5 + 1 * (count // 8 + 1), timeout=timeout)
         return self._upack_bits(*resp[1:])[:count]
 
-    async def read_discrete_inputs(self, address: int, count: int, *, unit=None, timeout=None):
-        resp = await self._request(unit, 0x02, address, count, request_packing=">BBHH",
-                                   decode_packing=">BBB" + "B" * (count // 8 + 1) + "H",
-                                   packet_length=5 + 1 * (count // 8 + 1))
+    async def read_discrete_inputs(self, address: int, count: int, *, unit=None, timeout: float = 0.1):
+        resp = await self._request(unit, 0x02, address, count, decode_packing=">BBB" + "B" * (count // 8 + 1) + "H",
+                                   packet_length=5 + 1 * (count // 8 + 1), timeout=timeout)
         return self._upack_bits(*resp[1:])[:count]
 
-    async def read_holding_registers(self, address: int, count: int, *, unit=None, timeout=None):
-        resp = await self._request(unit, 0x03, address, count, request_packing=">BBHH",
-                                   decode_packing=">BBBH" + "H" * count, packet_length=5 + 2 * count)
+    async def read_holding_registers(self, address: int, count: int, *, unit=None, timeout: float = 0.1):
+        resp = await self._request(unit, 0x03, address, count, decode_packing=">BBBH" + "H" * count,
+                                   packet_length=5 + 2 * count, timeout=timeout)
         return resp[1:]
 
-    async def read_input_registers(self, address: int, count: int, *, unit=None, timeout=None):
-        resp = await self._request(unit, 0x04, address, count, request_packing=">BBHH",
-                                   decode_packing=">BBBH" + "H" * count, packet_length=5 + 2 * count)
+    async def read_input_registers(self, address: int, count: int, *, unit=None, timeout: float = 0.1):
+        resp = await self._request(unit, 0x04, address, count, decode_packing=">BBBH" + "H" * count,
+                                   packet_length=5 + 2 * count, timeout=timeout)
         return resp[1:]
 
-    async def write_single_coil(self, address: int, value: bool, *, unit=None, timeout=None):
+    async def write_single_coil(self, address: int, value: bool, *, unit=None, timeout: float = 0.1):
         if value:
             value = 0xff00
-        await self._request(unit, 0x05, address, value, request_packing=">BBHH",
-                            decode_packing=">BBHHH", packet_length=8)
+        await self._request(unit, 0x05, address, value, decode_packing=">BBHHH", packet_length=8, timeout=timeout)
 
-    async def write_single_register(self, address: int, value: int, *, unit=None, timeout=None):
-        return await self._request(unit, 0x06, address, value, request_packing=">BBHH",
-                                   decode_packing=">BBHHH", packet_length=8)
+    async def write_single_register(self, address: int, value: int, *, unit=None, timeout: float = 0.1):
+        return await self._request(unit, 0x06, address, value, decode_packing=">BBHHH", packet_length=8,
+                                   timeout=timeout)
 
-    async def write_multiple_coils(self, address: int, *values: bool, unit=None, timeout=None):
-        await self._request(unit, 0x0f, address, *values,
-                            request_packing=">BBHHB" + "B" * len(values),
-                            decode_packing=">BBHHH", packet_length=8)
+    async def write_multiple_coils(self, address: int, *values: bool, unit=None, timeout: float = 0.1):
+        await self._request(unit, 0x0f, address, *values, decode_packing=">BBHHH", packet_length=8, timeout=timeout)
 
-    async def write_multiple_registers(self, address: int, *values: int, unit=None, timeout=None):
-        await self._request(unit, 0x10, address, *values,
-                            request_packing=">BBHHB" + "H" * len(values),
-                            decode_packing=">BBHHH", packet_length=8)
+    async def write_multiple_registers(self, address: int, *values: int, unit=None, timeout: float = 0.1):
+        await self._request(unit, 0x10, address, *values, decode_packing=">BBHHH", packet_length=8, timeout=timeout)
 
     async def read_exception_status(self, unit=None, timeout=None):
         function_code = 0x07
