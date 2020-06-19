@@ -43,6 +43,7 @@ def mock_sleep(create_mock_coro):
     mock, _ = create_mock_coro(to_patch="asyncio.sleep")
     return mock
 
+
 @pytest.fixture
 def client():
     client = aiomodbus.serial.ModbusSerialClient("COM3", 9600, "N", 1)
@@ -51,6 +52,7 @@ def client():
     client.protocol.byte_time = 0.1
     client.connected.set()
     return client
+
 
 @pytest.mark.asyncio
 async def test_read_coils(mock_sleep, client):
@@ -84,6 +86,7 @@ async def test_read_holding_registers(mock_sleep, client):
     client.transport.write.assert_called_once_with(b"\x11\x03\x00\x6b\x00\x03\x76\x87")
     assert fut.result() == [0xAE41, 0x5652, 0x4340]
 
+
 @pytest.mark.asyncio
 async def test_read_input_registers(mock_sleep, client):
     client.transport.write.side_effect = respond(client.protocol, b"\x11\x04\x02\x00\x0A\xF8\xF4")
@@ -92,12 +95,14 @@ async def test_read_input_registers(mock_sleep, client):
     client.transport.write.assert_called_once_with(b"\x11\x04\x00\x08\x00\x01\xB2\x98")
     assert fut.result() == [0xA]
 
+
 @pytest.mark.asyncio
 async def test_write_coil(mock_sleep, client):
     client.transport.write.side_effect = respond(client.protocol, b"\x11\x05\x00\xAC\xFF\x00\x4E\x8B")
     fut = asyncio.create_task(client.write_single_coil(0xAC, True, unit=0x11))
     await fut
     client.transport.write.assert_called_once_with(b"\x11\x05\x00\xAC\xFF\x00\x4E\x8B")
+
 
 @pytest.mark.asyncio
 async def test_write_register(mock_sleep, client):
@@ -142,7 +147,18 @@ async def test_exceptions(exceptioncls, exception_code, mock_sleep, client):
     exc_packet = bytearray([0x11, 0x83, exception_code])
     exc_packet.extend(struct.pack(">H", aiomodbus.crc.calc_crc(exc_packet)))
     client.transport.write.side_effect = respond(client.protocol, exc_packet)
-    fut = asyncio.create_task(client.read_holding_registers(0x6b, 0x3, unit=0x11))
     with pytest.raises(exceptioncls):
-        await fut
+        await client.read_holding_registers(0x6b, 0x3, unit=0x11)
     client.transport.write.assert_called_once_with(b"\x11\x03\x00\x6b\x00\x03\x76\x87")
+
+
+@pytest.mark.asyncio
+async def test_read_exception_status(client):
+    with pytest.raises(NotImplementedError):
+        await client.read_exception_status()
+
+
+@pytest.mark.asyncio
+async def test_diagnostics(client):
+    with pytest.raises(NotImplementedError):
+        await client.diagnostics(None)
