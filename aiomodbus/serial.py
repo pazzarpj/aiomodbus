@@ -44,9 +44,10 @@ class ModbusSerialProtocol(asyncio.Protocol):
             return await asyncio.wait_for(self.build_decode(packet_length, decode_packing),
                                           self.byte_time * packet_length + timeout)
         finally:
-            self.empty_queue()
+            await self.empty_queue()
 
-    def empty_queue(self):
+    async def empty_queue(self):
+        await asyncio.sleep(self.byte_time * 2.5)
         while True:
             try:
                 self.q.get_nowait()
@@ -119,7 +120,10 @@ class ModbusSerialClient:
         if unit is None:
             unit = self.default_unit_id
         async with self.transaction:
-            await asyncio.sleep(self.protocol.byte_time * 2.5)
+            try:
+                await asyncio.wait_for(self.connected.wait(), 2)
+            except asyncio.TimeoutError as e:
+                raise asyncio.TimeoutError("Failed modbus request as client is not connected") from e
             packet = self._encode_packet(unit, function_code, address, *values)
             self.protocol.buffer.clear()
             self.transport.write(packet)
