@@ -3,7 +3,7 @@ from aiomodbus.exceptions import modbus_exception_codes
 
 
 def _unpack_bits(data, bytesize=8):
-    size, = struct.unpack(">B", data[0:1])
+    (size,) = struct.unpack(">B", data[0:1])
     values = struct.unpack(">" + "B" * size, data[1:])
     vals = []
     for val in values:
@@ -13,7 +13,7 @@ def _unpack_bits(data, bytesize=8):
 
 
 def _unpack_words(data):
-    size, = struct.unpack(">B", data[0:1])
+    (size,) = struct.unpack(">B", data[0:1])
     return struct.unpack(">" + "H" * (size // 2), data[1:])
 
 
@@ -33,7 +33,7 @@ function_codes = {
     5: _unpack_single_coil,
     6: _unpack_single_register,
     15: _unpack_single_register,
-    16: _unpack_single_register
+    16: _unpack_single_register,
 }
 
 

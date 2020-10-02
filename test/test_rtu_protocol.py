@@ -56,32 +56,93 @@ def client():
 
 @pytest.mark.asyncio
 async def test_read_coils(mock_sleep, client):
-    client.transport.write.side_effect = respond(client.protocol, b"\x11\x01\x05\xCD\x6B\xB2\x0E\x1B\x45\xE6")
+    client.transport.write.side_effect = respond(
+        client.protocol, b"\x11\x01\x05\xCD\x6B\xB2\x0E\x1B\x45\xE6"
+    )
     fut = asyncio.create_task(client.read_coils(0x13, 0x25, unit=0x11))
     await fut
     client.transport.write.assert_called_once_with(b"\x11\x01\x00\x13\x00\x25\x0E\x84")
-    assert fut.result() == [True, False, True, True, False, False, True, True, True, True, False, True, False, True,
-                            True,
-                            False, False, True, False, False, True, True, False, True, False, True, True, True, False,
-                            False,
-                            False, False, True, True, False, True, True]
+    assert fut.result() == [
+        True,
+        False,
+        True,
+        True,
+        False,
+        False,
+        True,
+        True,
+        True,
+        True,
+        False,
+        True,
+        False,
+        True,
+        True,
+        False,
+        False,
+        True,
+        False,
+        False,
+        True,
+        True,
+        False,
+        True,
+        False,
+        True,
+        True,
+        True,
+        False,
+        False,
+        False,
+        False,
+        True,
+        True,
+        False,
+        True,
+        True,
+    ]
 
 
 @pytest.mark.asyncio
 async def test_read_discrete_inputs(mock_sleep, client):
-    client.transport.write.side_effect = respond(client.protocol, b"\x11\x02\x03\xAC\xDB\x35\x20\x18")
+    client.transport.write.side_effect = respond(
+        client.protocol, b"\x11\x02\x03\xAC\xDB\x35\x20\x18"
+    )
     fut = asyncio.create_task(client.read_discrete_inputs(0xC4, 0x16, unit=0x11))
     await fut
     client.transport.write.assert_called_once_with(b"\x11\x02\x00\xC4\x00\x16\xBA\xA9")
-    assert fut.result() == [False, False, True, True, False, True, False, True, True, True, False, True, True, False,
-                            True,
-                            True, True, False, True, False, True, True]
+    assert fut.result() == [
+        False,
+        False,
+        True,
+        True,
+        False,
+        True,
+        False,
+        True,
+        True,
+        True,
+        False,
+        True,
+        True,
+        False,
+        True,
+        True,
+        True,
+        False,
+        True,
+        False,
+        True,
+        True,
+    ]
 
 
 @pytest.mark.asyncio
 async def test_read_holding_registers(mock_sleep, client):
-    client.transport.write.side_effect = respond(client.protocol, b"\x11\x03\x06\xAE\x41\x56\x52\x43\x40\x49\xAD")
-    fut = asyncio.create_task(client.read_holding_registers(0x6b, 0x3, unit=0x11))
+    client.transport.write.side_effect = respond(
+        client.protocol, b"\x11\x03\x06\xAE\x41\x56\x52\x43\x40\x49\xAD"
+    )
+    fut = asyncio.create_task(client.read_holding_registers(0x6B, 0x3, unit=0x11))
     await fut
     client.transport.write.assert_called_once_with(b"\x11\x03\x00\x6b\x00\x03\x76\x87")
     assert fut.result() == [0xAE41, 0x5652, 0x4340]
@@ -89,7 +150,9 @@ async def test_read_holding_registers(mock_sleep, client):
 
 @pytest.mark.asyncio
 async def test_read_input_registers(mock_sleep, client):
-    client.transport.write.side_effect = respond(client.protocol, b"\x11\x04\x02\x00\x0A\xF8\xF4")
+    client.transport.write.side_effect = respond(
+        client.protocol, b"\x11\x04\x02\x00\x0A\xF8\xF4"
+    )
     fut = asyncio.create_task(client.read_input_registers(0x08, 0x1, unit=0x11))
     await fut
     client.transport.write.assert_called_once_with(b"\x11\x04\x00\x08\x00\x01\xB2\x98")
@@ -98,7 +161,9 @@ async def test_read_input_registers(mock_sleep, client):
 
 @pytest.mark.asyncio
 async def test_write_coil(mock_sleep, client):
-    client.transport.write.side_effect = respond(client.protocol, b"\x11\x05\x00\xAC\xFF\x00\x4E\x8B")
+    client.transport.write.side_effect = respond(
+        client.protocol, b"\x11\x05\x00\xAC\xFF\x00\x4E\x8B"
+    )
     fut = asyncio.create_task(client.write_single_coil(0xAC, True, unit=0x11))
     await fut
     client.transport.write.assert_called_once_with(b"\x11\x05\x00\xAC\xFF\x00\x4E\x8B")
@@ -106,7 +171,9 @@ async def test_write_coil(mock_sleep, client):
 
 @pytest.mark.asyncio
 async def test_write_register(mock_sleep, client):
-    client.transport.write.side_effect = respond(client.protocol, b"\x11\x06\x00\x01\x00\x03\x9A\x9B")
+    client.transport.write.side_effect = respond(
+        client.protocol, b"\x11\x06\x00\x01\x00\x03\x9A\x9B"
+    )
     fut = asyncio.create_task(client.write_single_register(0x01, 0x3, unit=0x11))
     await fut
     client.transport.write.assert_called_once_with(b"\x11\x06\x00\x01\x00\x03\x9A\x9B")
@@ -114,41 +181,68 @@ async def test_write_register(mock_sleep, client):
 
 @pytest.mark.asyncio
 async def test_write_coils(mock_sleep, client):
-    client.transport.write.side_effect = respond(client.protocol, b"\x11\x0F\x00\x13\x00\x0A\x26\x99")
+    client.transport.write.side_effect = respond(
+        client.protocol, b"\x11\x0F\x00\x13\x00\x0A\x26\x99"
+    )
     fut = asyncio.create_task(
-        client.write_multiple_coils(0x13, True, False, True, True, False, False, True, True, True, False, unit=0x11))
+        client.write_multiple_coils(
+            0x13,
+            True,
+            False,
+            True,
+            True,
+            False,
+            False,
+            True,
+            True,
+            True,
+            False,
+            unit=0x11,
+        )
+    )
     await fut
-    client.transport.write.assert_called_once_with(b"\x11\x0F\x00\x13\x00\x0A\x02\xCD\x01\xBF\x0B")
+    client.transport.write.assert_called_once_with(
+        b"\x11\x0F\x00\x13\x00\x0A\x02\xCD\x01\xBF\x0B"
+    )
 
 
 @pytest.mark.asyncio
 async def test_write_registers(mock_sleep, client):
-    client.transport.write.side_effect = respond(client.protocol, b"\x11\x10\x00\x01\x00\x02\x12\x98")
-    fut = asyncio.create_task(client.write_multiple_registers(0x01, 0xA, 0x102, unit=0x11))
+    client.transport.write.side_effect = respond(
+        client.protocol, b"\x11\x10\x00\x01\x00\x02\x12\x98"
+    )
+    fut = asyncio.create_task(
+        client.write_multiple_registers(0x01, 0xA, 0x102, unit=0x11)
+    )
     await fut
-    client.transport.write.assert_called_once_with(b"\x11\x10\x00\x01\x00\x02\x04\x00\x0A\x01\x02\xC6\xF0")
+    client.transport.write.assert_called_once_with(
+        b"\x11\x10\x00\x01\x00\x02\x04\x00\x0A\x01\x02\xC6\xF0"
+    )
 
 
-@pytest.mark.parametrize("exceptioncls,exception_code", [
-    (aiomodbus.exceptions.IllegalFunction, 1),
-    (aiomodbus.exceptions.IllegalDataAddress, 2),
-    (aiomodbus.exceptions.IllegalDataValue, 3),
-    (aiomodbus.exceptions.SlaveDeviceFailure, 4),
-    (aiomodbus.exceptions.AcknowledgeError, 5),
-    (aiomodbus.exceptions.DeviceBusy, 6),
-    (aiomodbus.exceptions.NegativeAcknowledgeError, 7),
-    (aiomodbus.exceptions.MemoryParityError, 8),
-    (aiomodbus.exceptions.GatewayPathUnavailable, 10),
-    (aiomodbus.exceptions.GatewayDeviceFailedToRespond, 11),
-    (ConnectionError, 12),
-])
+@pytest.mark.parametrize(
+    "exceptioncls,exception_code",
+    [
+        (aiomodbus.exceptions.IllegalFunction, 1),
+        (aiomodbus.exceptions.IllegalDataAddress, 2),
+        (aiomodbus.exceptions.IllegalDataValue, 3),
+        (aiomodbus.exceptions.SlaveDeviceFailure, 4),
+        (aiomodbus.exceptions.AcknowledgeError, 5),
+        (aiomodbus.exceptions.DeviceBusy, 6),
+        (aiomodbus.exceptions.NegativeAcknowledgeError, 7),
+        (aiomodbus.exceptions.MemoryParityError, 8),
+        (aiomodbus.exceptions.GatewayPathUnavailable, 10),
+        (aiomodbus.exceptions.GatewayDeviceFailedToRespond, 11),
+        (ConnectionError, 12),
+    ],
+)
 @pytest.mark.asyncio
 async def test_exceptions(exceptioncls, exception_code, mock_sleep, client):
     exc_packet = bytearray([0x11, 0x83, exception_code])
     exc_packet.extend(struct.pack(">H", aiomodbus.crc.calc_crc(exc_packet)))
     client.transport.write.side_effect = respond(client.protocol, exc_packet)
     with pytest.raises(exceptioncls):
-        await client.read_holding_registers(0x6b, 0x3, unit=0x11)
+        await client.read_holding_registers(0x6B, 0x3, unit=0x11)
     client.transport.write.assert_called_once_with(b"\x11\x03\x00\x6b\x00\x03\x76\x87")
 
 

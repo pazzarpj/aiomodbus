@@ -7,7 +7,7 @@ def _pack_words(address: int, *values: int) -> bytes:
 
 def _pack_single_coil(address: int, value: int) -> bytes:
     if value:
-        value = 0xff00
+        value = 0xFF00
     else:
         value = 0
     return struct.pack(">HH", address, value)
@@ -22,7 +22,9 @@ def _pack_write_coils(address: int, *values: bool) -> bytes:
 
 
 def _pack_write_words(address: int, *values: int) -> bytes:
-    return struct.pack(">HHB" + "H" * len(values), address, len(values), len(values) * 2, *values)
+    return struct.pack(
+        ">HHB" + "H" * len(values), address, len(values), len(values) * 2, *values
+    )
 
 
 function_codes = {
@@ -33,7 +35,7 @@ function_codes = {
     5: _pack_single_coil,
     6: _pack_words,
     15: _pack_write_coils,
-    16: _pack_write_words
+    16: _pack_write_words,
 }
 
 
