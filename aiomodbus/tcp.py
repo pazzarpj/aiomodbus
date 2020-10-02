@@ -113,10 +113,10 @@ class ModbusTCPClient:
         while self.running:
             try:
                 if self.client_port:
+                    sock = await self.build_reuse_socket()
                     self.transport, self.protocol = await asyncio.wait_for(
                         loop.create_connection(
-                            lambda: ModbusTcpProtocol(self),
-                            sock=self.build_reuse_socket(),
+                            lambda: ModbusTcpProtocol(self), sock=sock,
                         ),
                         2,
                     )
@@ -141,13 +141,17 @@ class ModbusTCPClient:
                 log.exception(e)
                 raise
 
-    def build_reuse_socket(self):
+    async def build_reuse_socket(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
         sock.settimeout(10)
         sock.bind(("", self.client_port))
         sock.setblocking(False)
+        await asyncio.wait_for(
+            asyncio.get_event_loop().sock_connect(sock, (self.host, self.port)),
+            timeout=1,
+        )
         return sock
 
     def _encode_packet(
