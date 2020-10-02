@@ -147,6 +147,7 @@ class ModbusTCPClient:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
         sock.settimeout(10)
         sock.bind(("", self.client_port))
+        sock.setblocking(False)
         return sock
 
     def _encode_packet(
