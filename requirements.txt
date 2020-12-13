@@ -1,1 +1,1 @@
-pyserial-asyncio==0.4
+pyserial-asyncio
