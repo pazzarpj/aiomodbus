@@ -75,7 +75,6 @@ class ModbusSerialProtocol(asyncio.Protocol):
             await self.q.get()
 
     def connection_lost(self, exc):
-        self.transport.loop.stop()
         self.client.connected.clear()
 
 
