@@ -116,7 +116,8 @@ class ModbusTCPClient:
                     sock = await self.build_reuse_socket()
                     self.transport, self.protocol = await asyncio.wait_for(
                         loop.create_connection(
-                            lambda: ModbusTcpProtocol(self), sock=sock,
+                            lambda: ModbusTcpProtocol(self),
+                            sock=sock,
                         ),
                         2,
                     )
