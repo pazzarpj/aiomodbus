@@ -1,44 +1,48 @@
-class RequestException(ValueError):
+class ModbusException(Exception):
     pass
 
 
-class IllegalFunction(RequestException):
+class RequestException(ValueError, ModbusException):
     pass
 
 
-class IllegalDataAddress(RequestException):
+class IllegalFunction(RequestException, ModbusException):
     pass
 
 
-class IllegalDataValue(RequestException):
+class IllegalDataAddress(RequestException, ModbusException):
     pass
 
 
-class MemoryParityError(IOError):
+class IllegalDataValue(RequestException, ModbusException):
     pass
 
 
-class SlaveDeviceFailure(IOError):
+class MemoryParityError(IOError, ModbusException):
     pass
 
 
-class AcknowledgeError(IOError):
+class SlaveDeviceFailure(IOError, ModbusException):
     pass
 
 
-class DeviceBusy(IOError):
+class AcknowledgeError(IOError, ModbusException):
     pass
 
 
-class NegativeAcknowledgeError(IOError):
+class DeviceBusy(IOError, ModbusException):
     pass
 
 
-class GatewayPathUnavailable(IOError):
+class NegativeAcknowledgeError(IOError, ModbusException):
     pass
 
 
-class GatewayDeviceFailedToRespond(IOError):
+class GatewayPathUnavailable(IOError, ModbusException):
+    pass
+
+
+class GatewayDeviceFailedToRespond(IOError, ModbusException):
     pass
 
 
@@ -54,4 +58,18 @@ modbus_exception_codes = {
     10: GatewayPathUnavailable,
     11: GatewayDeviceFailedToRespond,
     12: ConnectionError,
+}
+
+modbus_exceptions_to_codes = {
+    IllegalFunction: 1,
+    IllegalDataAddress: 2,
+    IllegalDataValue: 3,
+    SlaveDeviceFailure: 4,
+    AcknowledgeError: 5,
+    DeviceBusy: 6,
+    NegativeAcknowledgeError: 7,
+    MemoryParityError: 8,
+    GatewayPathUnavailable: 10,
+    GatewayDeviceFailedToRespond: 11,
+    ConnectionError: 12,
 }
