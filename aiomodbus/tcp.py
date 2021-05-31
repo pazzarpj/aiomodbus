@@ -47,7 +47,7 @@ class TransactionLimit:
 class ModbusTcpProtocol(asyncio.Protocol):
     def __init__(self, client):
         self.client = client
-        self.transactions: Dict[str, asyncio.Future] = {}
+        self.transactions: Dict[int, asyncio.Future] = {}
         self._cnt_lock = threading.Lock()
         self.transaction_cnt = 0
 
@@ -71,10 +71,13 @@ class ModbusTcpProtocol(asyncio.Protocol):
     def connection_lost(self, exc: Optional[Exception]) -> None:
         self.client.connected.clear()
         log.info(f"Modbus Client disconnected from {self.client.host}")
-        if self.client.running:
+        try:
             for fut in self.transactions.values():
                 if not fut.done():
                     fut.cancel()
+        finally:
+            self.transactions.clear()
+        if self.client.running:
             asyncio.create_task(self.client.connect())
 
     def new_transaction(self) -> Tuple[int, asyncio.Future]:
@@ -183,7 +186,9 @@ class ModbusTCPClient:
             try:
                 await asyncio.wait_for(fut, timeout)
             finally:
-                self.protocol.transactions.pop(trans_id, None)
+                fut = self.protocol.transactions.pop(trans_id, None)
+                if fut and not fut.done():
+                    fut.cancel()
             return fut.result()
 
     async def read_coils(self, address: int, count: int, *, unit=None, timeout=None):
