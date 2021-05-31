@@ -7,6 +7,7 @@ import asyncio
 import aiomodbus.exceptions
 import aiomodbus.serial
 import aiomodbus.tcp
+import aiomodbus.crc
 
 
 def async_return(result):
