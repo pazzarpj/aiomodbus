@@ -1,10 +1,11 @@
 from __future__ import annotations
+
 import typing
 from dataclasses import dataclass, field
 
 
-def slice_range(slic):
-    return range(*(x for x in [slic.start, slic.stop, slic.step] if x is not None))
+def slice_set(slic) -> set:
+    return set(range(*(x for x in [slic.start, slic.stop, slic.step] if x is not None)))
 
 
 def check_uint16(value: int) -> int:
@@ -15,10 +16,14 @@ def check_uint16(value: int) -> int:
         raise AssertionError from e
 
 
+def init_data_range(start, count, default=0) -> dict:
+    return {x: default for x in range(start, start + count)}
+
+
 @dataclass
-class AddressMap:
+class DataStore:
     buffer: dict = field(default_factory=dict)
-    hooks: typing.Dict[int, typing.Callable[[int, int, int, dict], None]] = field(
+    hooks: typing.Dict[int, typing.Callable[[dict, dict, dict], None]] = field(
         default_factory=dict
     )
     default_hook: typing.Optional[typing.Callable] = None
@@ -29,41 +34,47 @@ class AddressMap:
         :return:
         """
         if isinstance(addr, int):
-            if addr < 0:
-                raise ValueError("Address should be >= 0.")
             return self.buffer[addr]
         elif isinstance(addr, slice):
-            return [self.buffer[i] for i in slice_range(addr)]
+            return [self.buffer[i] for i in slice_set(addr)]
         else:
-            raise TypeError("Address has unsupported type")
+            raise KeyError("Address has unsupported type")
 
     def __setitem__(
-        self, key: typing.Union[int, slice], value: typing.Union[int, typing.List[int]]
+        self,
+        key: typing.Union[int, slice],
+        value: typing.Union[int, typing.List[int], tuple],
     ):
         if isinstance(key, slice):
-            for index, addr in enumerate(slice_range(key)):
-                prev = self.buffer[key]
-                if value[index] != prev:
-                    self.buffer[addr] = check_uint16(value[index])
-                    self._run_hooks(addr, prev, value)
-        elif isinstance(value, list):
-            for index, itm in enumerate(value):
-                prev = self.buffer[key + index]
-                if value[index] != prev:
-                    self.buffer[key + index] = check_uint16(itm)
-                    self._run_hooks(key + index, prev, itm)
+            addrs = slice_set(key)
+            if len(addrs) != len(value):
+                raise ValueError(f"Invalid value length for key {value}")
+            current = {addr: value[index] for index, addr in enumerate(sorted(addrs))}
+        elif isinstance(value, list) or isinstance(value, tuple):
+            addrs = set(range(key, key + len(value)))
+            if addrs.difference(self.buffer):
+                raise ValueError(f"Invalid Addresses {addrs.difference(self.buffer)}")
+            current = {addr: value[index] for index, addr in enumerate(sorted(addrs))}
         else:
-            prev = self.buffer[key]
-            if value != prev:
-                self.buffer[key] = check_uint16(value)
-                self._run_hooks(key, prev, value)
+            addrs = {key}
+            current = {addr: value for index, addr in enumerate(sorted(addrs))}
+        if addrs.difference(self.buffer):
+            raise ValueError(f"Invalid Addresses {set(addrs).difference(self.buffer)}")
+        previous = {addr: self.buffer[addr] for addr in addrs}
+        if current != previous:
+            for val in current.values():
+                check_uint16(val)
+            self.buffer.update(current)
+            self._run_hooks(previous, current)
 
-    def _run_hooks(self, address: int, previous: int, current: int):
-        try:
-            self.hooks[address](address, previous, current, self.buffer)
-        except KeyError:
-            if self.default_hook:
-                self.default_hook(address, previous, current, self.buffer)
+    def _run_hooks(self, previous: dict, current: dict):
+        addrs = set(self.hooks).intersection(previous)
+        hooks = {self.hooks[addr] for addr in addrs}
+        if hooks:
+            for hook in hooks:
+                hook(previous, current, self.buffer)
+        elif self.default_hook:
+            self.default_hook(previous, current, self.buffer)
 
     def __contains__(self, item: int):
         return item in self.buffer
@@ -71,7 +82,7 @@ class AddressMap:
     def __bool__(self):
         return bool(self.buffer)
 
-    def __eq__(self, another: AddressMap):
+    def __eq__(self, another: DataStore):
         """
         Used for tests to compare the buffers of two address maps.
 
@@ -80,7 +91,7 @@ class AddressMap:
         """
         return self.buffer == another.buffer
 
-    def merge(self, addr: AddressMap):
+    def merge(self, addr: DataStore):
         """
         Merges another address map into this existing address map
 
@@ -95,7 +106,7 @@ class AddressMap:
 
         self.buffer.update(addr.buffer)
 
-    def update(self, addr: AddressMap, force: bool = False):
+    def update(self, addr: DataStore, force: bool = False):
         """
         Updates another address map with this existing address map
 
@@ -115,4 +126,4 @@ class AddressMap:
         return f"AddressMap: {self.buffer}"
 
     def copy(self):
-        return AddressMap(self.buffer, self.hooks, self.default_hook)
+        return DataStore(self.buffer, self.hooks, self.default_hook)
