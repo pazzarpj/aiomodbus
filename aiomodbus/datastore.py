@@ -18,7 +18,9 @@ def check_uint16(value: int) -> int:
 @dataclass
 class AddressMap:
     buffer: dict = field(default_factory=dict)
-    hooks: typing.Dict[int, typing.Callable[[int, int, int, dict], None]] = field(default_factory=dict)
+    hooks: typing.Dict[int, typing.Callable[[int, int, int, dict], None]] = field(
+        default_factory=dict
+    )
     default_hook: typing.Optional[typing.Callable] = None
 
     def __getitem__(self, addr: typing.Union[int, slice]):
@@ -41,17 +43,20 @@ class AddressMap:
         if isinstance(key, slice):
             for index, addr in enumerate(slice_range(key)):
                 prev = self.buffer[key]
-                self.buffer[addr] = check_uint16(value[index])
-                self._run_hooks(addr, prev, value)
+                if value[index] != prev:
+                    self.buffer[addr] = check_uint16(value[index])
+                    self._run_hooks(addr, prev, value)
         elif isinstance(value, list):
             for index, itm in enumerate(value):
                 prev = self.buffer[key + index]
-                self.buffer[key + index] = check_uint16(itm)
-                self._run_hooks(key + index, prev, itm)
+                if value[index] != prev:
+                    self.buffer[key + index] = check_uint16(itm)
+                    self._run_hooks(key + index, prev, itm)
         else:
             prev = self.buffer[key]
-            self.buffer[key] = check_uint16(value)
-            self._run_hooks(key, prev, value)
+            if value != prev:
+                self.buffer[key] = check_uint16(value)
+                self._run_hooks(key, prev, value)
 
     def _run_hooks(self, address: int, previous: int, current: int):
         try:
