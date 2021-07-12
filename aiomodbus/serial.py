@@ -164,8 +164,8 @@ class ModbusSerialClient:
             0x01,
             address,
             count,
-            decode_packing=">BBB" + "B" * (count // 8 + 1) + "H",
-            packet_length=5 + 1 * (count // 8 + 1),
+            decode_packing=">BBB" + "B" * ((count - 1) // 8 + 1) + "H",
+            packet_length=5 + 1 * ((count - 1) // 8 + 1),
             timeout=timeout,
         )
         return self._upack_bits(*resp[1:])[:count]
@@ -178,8 +178,8 @@ class ModbusSerialClient:
             0x02,
             address,
             count,
-            decode_packing=">BBB" + "B" * (count // 8 + 1) + "H",
-            packet_length=5 + 1 * (count // 8 + 1),
+            decode_packing=">BBB" + "B" * ((count - 1) // 8 + 1) + "H",
+            packet_length=5 + 1 * ((count - 1) // 8 + 1),
             timeout=timeout,
         )
         return self._upack_bits(*resp[1:])[:count]
