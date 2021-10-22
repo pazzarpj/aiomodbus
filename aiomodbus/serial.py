@@ -11,10 +11,27 @@ import asyncio
 import struct
 from dataclasses import dataclass
 from aiomodbus import decoders, encoders
+from pathlib import Path
 import serial_asyncio
+import os
 
 import aiomodbus.crc
 from aiomodbus.exceptions import modbus_exception_codes
+
+LOG_PACKETS = os.getenv("MODBUS_LOG")
+if LOG_PACKETS:
+    import logging.handlers
+    log = logging.getLogger(__file__)
+    log.setLevel(logging.INFO)
+    log_dir = Path()  / LOG_PACKETS
+    log_dir.mkdir(parents=True, exist_ok=True)
+    formatter = logging.Formatter("%(asctime)-15s %(message)s")
+    handler = logging.handlers.TimedRotatingFileHandler(
+        log_dir / f"modbuslog.log", when="midnight", backupCount=7
+    )
+    handler.setFormatter(formatter)
+    log.addHandler(handler)
+    log.propagate = False
 
 
 class ModbusSerialProtocol(asyncio.Protocol):
@@ -68,9 +85,13 @@ class ModbusSerialProtocol(asyncio.Protocol):
         while True:
             if len(self.buffer) >= 5:
                 if self.buffer[1] & 0x80:
+                    if LOG_PACKETS:
+                        log.info("Decode: " + " ".join(f"{byt:02X}" for byt in self.buffer))
                     raise modbus_exception_codes[self.buffer[2]]
             if len(self.buffer) >= packet_length:
                 aiomodbus.crc.check_crc(self.buffer[:packet_length])
+                if LOG_PACKETS:
+                    log.info("Decode: " + " ".join(f"{byt:02X}" for byt in self.buffer[:packet_length]))
                 return struct.unpack(decode_packing, self.buffer[:packet_length])
             await self.q.get()
 
@@ -112,6 +133,8 @@ class ModbusSerialClient:
         packet.extend(struct.pack(">BB", unit, function_code))
         packet.extend(encoders.from_func_code(function_code, address, *values))
         packet.extend(struct.pack(">H", aiomodbus.crc.calc_crc(packet)))
+        if LOG_PACKETS:
+            log.info("Encode: " + " ".join(f"{byt:02X}" for byt in packet))
         return packet
 
     def _pack_bits(self, *values: bool, size=8):
