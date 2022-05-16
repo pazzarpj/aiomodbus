@@ -149,8 +149,9 @@ class ModbusSerialClient:
             packet = self._encode_packet(unit, function_code, address, *values)
             self.protocol.buffer.clear()
             self.transport.write(packet)
+            write_time = self.protocol.byte_time * len(packet)
             unit_id, func_code, *values, crc = await self.protocol.decode(
-                packet_length, decode_packing, timeout=timeout
+                packet_length, decode_packing, timeout=timeout + write_time
             )
             assert unit_id == unit
             assert function_code == func_code
