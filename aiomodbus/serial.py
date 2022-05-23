@@ -151,7 +151,7 @@ class ModbusSerialClient:
             self.transport.write(packet)
             write_time = self.protocol.byte_time * len(packet)
             unit_id, func_code, *values, crc = await self.protocol.decode(
-                packet_length, decode_packing, timeout=timeout + write_time
+                packet_length, decode_packing, turn_around_delay_timeout=0.4 + write_time
             )
             assert unit_id == unit
             assert function_code == func_code
