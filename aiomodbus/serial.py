@@ -10,11 +10,14 @@ Source www.modbus.org Modbus_over_serial_line_V1.02 2006
 import asyncio
 import struct
 from dataclasses import dataclass
+import logging
 from aiomodbus import decoders, encoders
 import serial_asyncio
 
 import aiomodbus.crc
 from aiomodbus.exceptions import modbus_exception_codes
+
+log = logging.getLogger(__file__)
 
 
 class ModbusSerialProtocol(asyncio.Protocol):
@@ -68,9 +71,16 @@ class ModbusSerialProtocol(asyncio.Protocol):
         while True:
             if len(self.buffer) >= 5:
                 if self.buffer[1] & 0x80:
+                    log.debug(
+                        "Decode: " + " ".join(f"{byt:02X}" for byt in self.buffer)
+                    )
                     raise modbus_exception_codes[self.buffer[2]]
             if len(self.buffer) >= packet_length:
                 aiomodbus.crc.check_crc(self.buffer[:packet_length])
+                log.debug(
+                    "Decode: "
+                    + " ".join(f"{byt:02X}" for byt in self.buffer[:packet_length])
+                )
                 return struct.unpack(decode_packing, self.buffer[:packet_length])
             await self.q.get()
 
@@ -112,6 +122,7 @@ class ModbusSerialClient:
         packet.extend(struct.pack(">BB", unit, function_code))
         packet.extend(encoders.from_func_code(function_code, address, *values))
         packet.extend(struct.pack(">H", aiomodbus.crc.calc_crc(packet)))
+        log.debug(("Encode: " + " ".join(f"{byt:02X}" for byt in packet)))
         return packet
 
     def _pack_bits(self, *values: bool, size=8):
@@ -135,7 +146,7 @@ class ModbusSerialClient:
         *values: int,
         decode_packing: str,
         packet_length: int,
-        timeout: float = 0.1
+        timeout: float = 0.1,
     ):
         if unit is None:
             unit = self.default_unit_id
@@ -151,7 +162,9 @@ class ModbusSerialClient:
             self.transport.write(packet)
             write_time = self.protocol.byte_time * len(packet)
             unit_id, func_code, *values, crc = await self.protocol.decode(
-                packet_length, decode_packing, turn_around_delay_timeout=0.4 + write_time
+                packet_length,
+                decode_packing,
+                turn_around_delay_timeout=0.4 + write_time,
             )
             assert unit_id == unit
             assert function_code == func_code
@@ -251,7 +264,7 @@ class ModbusSerialClient:
             *values,
             decode_packing=">BBHHH",
             packet_length=8,
-            timeout=timeout
+            timeout=timeout,
         )
 
     async def write_multiple_registers(
@@ -264,7 +277,7 @@ class ModbusSerialClient:
             *values,
             decode_packing=">BBHHH",
             packet_length=8,
-            timeout=timeout
+            timeout=timeout,
         )
 
     async def read_exception_status(self, unit=None, timeout=None):
