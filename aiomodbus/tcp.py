@@ -64,6 +64,7 @@ class ModbusTcpProtocol(asyncio.Protocol):
         trans_id, protocol_id, length, unit_id, func_code = struct.unpack(
             ">HHHBB", header
         )
+        log.debug("Decode: " + " ".join(f"{byt:02X}" for byt in data))
         fut = self.transactions.get(trans_id)
         if fut:
             decoders.from_func_code(fut, func_code, payload)
@@ -116,7 +117,8 @@ class ModbusTCPClient:
                     sock = await self.build_reuse_socket()
                     self.transport, self.protocol = await asyncio.wait_for(
                         loop.create_connection(
-                            lambda: ModbusTcpProtocol(self), sock=sock,
+                            lambda: ModbusTcpProtocol(self),
+                            sock=sock,
                         ),
                         2,
                     )
@@ -163,6 +165,7 @@ class ModbusTCPClient:
             struct.pack(">HHHBB", trans_id, 0x0000, len(data) + 2, unit, function_code)
         )
         packet.extend(data)
+        log.debug(("Encode: " + " ".join(f"{byt:02X}" for byt in packet)))
         return packet
 
     async def _request(

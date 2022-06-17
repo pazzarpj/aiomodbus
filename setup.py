@@ -30,7 +30,7 @@ def readfile(filename, func):
             data = func(f)
     except (IOError, IndexError):
         sys.stderr.write(
-            u"""
+            """
 Can't find '%s' file. This doesn't seem to be a valid release.
 """
             % filename
