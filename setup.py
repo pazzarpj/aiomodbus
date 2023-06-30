@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-from setuptools import setup, find_packages
+from setuptools import setup
 
 import sys
 import os
@@ -52,7 +52,7 @@ setup(
     scripts=[],
     version=get_version(),
     install_requires=get_requires(),
-    python_requires=">=3.6",
+    python_requires=">=3.7",
     include_package_data=True,
     zip_safe=False,
     classifiers=[
@@ -60,10 +60,11 @@ setup(
         "Intended Audience :: Telecommunications Industry",
         "Operating System :: OS Independent",
         "Programming Language :: Python :: 3 :: Only",
-        "Programming Language :: Python :: 3.6",
         "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
         "Development Status :: 2 - Pre-Alpha",
     ],
 )
