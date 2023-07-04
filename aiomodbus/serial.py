@@ -29,6 +29,7 @@ class ModbusSerialProtocol(asyncio.Protocol):
         self.q = asyncio.Queue()
         self.buffer = bytearray()
         self.loop = asyncio.get_event_loop()
+        self.byte_time = 0
 
     def connection_made(self, transport: serial_asyncio.SerialTransport):
         self.transport = transport
@@ -146,7 +147,7 @@ class ModbusSerialClient:
         *values: int,
         decode_packing: str,
         packet_length: int,
-        timeout: float = 0.1,
+        turn_around_delay_timeout: float = 0.4,
     ):
         if unit is None:
             unit = self.default_unit_id
@@ -164,7 +165,7 @@ class ModbusSerialClient:
             unit_id, func_code, *values, crc = await self.protocol.decode(
                 packet_length,
                 decode_packing,
-                turn_around_delay_timeout=0.4 + write_time,
+                turn_around_delay_timeout=turn_around_delay_timeout + write_time,
             )
             assert unit_id == unit
             assert function_code == func_code
@@ -180,7 +181,7 @@ class ModbusSerialClient:
             count,
             decode_packing=">BBB" + "B" * ((count - 1) // 8 + 1) + "H",
             packet_length=5 + 1 * ((count - 1) // 8 + 1),
-            timeout=timeout,
+            turn_around_delay_timeout=timeout,
         )
         return self._upack_bits(*resp[1:])[:count]
 
@@ -194,7 +195,7 @@ class ModbusSerialClient:
             count,
             decode_packing=">BBB" + "B" * ((count - 1) // 8 + 1) + "H",
             packet_length=5 + 1 * ((count - 1) // 8 + 1),
-            timeout=timeout,
+            turn_around_delay_timeout=timeout,
         )
         return self._upack_bits(*resp[1:])[:count]
 
@@ -208,7 +209,7 @@ class ModbusSerialClient:
             count,
             decode_packing=">BBBH" + "H" * count,
             packet_length=5 + 2 * count,
-            timeout=timeout,
+            turn_around_delay_timeout=timeout,
         )
         return resp[1:]
 
@@ -222,7 +223,7 @@ class ModbusSerialClient:
             count,
             decode_packing=">BBBH" + "H" * count,
             packet_length=5 + 2 * count,
-            timeout=timeout,
+            turn_around_delay_timeout=timeout,
         )
         return resp[1:]
 
@@ -238,7 +239,7 @@ class ModbusSerialClient:
             value,
             decode_packing=">BBHHH",
             packet_length=8,
-            timeout=timeout,
+            turn_around_delay_timeout=timeout,
         )
 
     async def write_single_register(
@@ -251,7 +252,7 @@ class ModbusSerialClient:
             value,
             decode_packing=">BBHHH",
             packet_length=8,
-            timeout=timeout,
+            turn_around_delay_timeout=timeout,
         )
 
     async def write_multiple_coils(
@@ -264,7 +265,7 @@ class ModbusSerialClient:
             *values,
             decode_packing=">BBHHH",
             packet_length=8,
-            timeout=timeout,
+            turn_around_delay_timeout=timeout,
         )
 
     async def write_multiple_registers(
@@ -277,7 +278,7 @@ class ModbusSerialClient:
             *values,
             decode_packing=">BBHHH",
             packet_length=8,
-            timeout=timeout,
+            turn_around_delay_timeout=timeout,
         )
 
     async def read_exception_status(self, unit=None, timeout=None):

@@ -1,11 +1,10 @@
 import asyncio
-import threading
 import logging
 import socket
 from typing import Optional, Tuple, Union, Dict
 import struct
 from dataclasses import dataclass
-from asyncio import transports
+from asyncio import transports, Lock
 from aiomodbus import decoders, encoders
 
 Number = Union[int, float]
@@ -47,12 +46,12 @@ class TransactionLimit:
 class ModbusTcpProtocol(asyncio.Protocol):
     def __init__(self, client):
         self.client = client
-        self.transactions: Dict[str, asyncio.Future] = {}
-        self._cnt_lock = threading.Lock()
+        self.transactions: Dict[int, asyncio.Future] = {}
+        self._cnt_lock = Lock()
         self.transaction_cnt = 0
 
-    def next_transaction(self):
-        with self._cnt_lock:
+    async def next_transaction(self):
+        async with self._cnt_lock:
             self.transaction_cnt = (self.transaction_cnt % 0xFFFE) + 1
             return self.transaction_cnt
 
@@ -60,14 +59,22 @@ class ModbusTcpProtocol(asyncio.Protocol):
         log.info(f"Modbus Client connected at {self.client.host}")
 
     def data_received(self, data: bytes) -> None:
-        header, payload = data[:8], data[8:]
-        trans_id, protocol_id, length, unit_id, func_code = struct.unpack(
-            ">HHHBB", header
-        )
-        log.debug("Decode: " + " ".join(f"{byt:02X}" for byt in data))
-        fut = self.transactions.get(trans_id)
-        if fut:
-            decoders.from_func_code(fut, func_code, payload)
+        while True:
+            header, payload = data[:8], data[8:]
+            trans_id, protocol_id, length, unit_id, func_code = struct.unpack(
+                ">HHHBB", header
+            )
+            log.debug("Decode: " + " ".join(f"{byt:02X}" for byt in data))
+            fut = self.transactions.get(trans_id)
+            if fut:
+                try:
+                    decoders.from_func_code(fut, func_code, payload[: length - 2])
+                    if len(payload) <= length - 2:
+                        break
+                except Exception as e:
+                    log.exception(e)
+                    break
+            data = payload[length - 2 :]
 
     def connection_lost(self, exc: Optional[Exception]) -> None:
         self.client.connected.clear()
@@ -78,8 +85,8 @@ class ModbusTcpProtocol(asyncio.Protocol):
                     fut.cancel()
             asyncio.create_task(self.client.connect())
 
-    def new_transaction(self) -> Tuple[int, asyncio.Future]:
-        trans_id = self.next_transaction()
+    async def new_transaction(self) -> Tuple[int, asyncio.Future]:
+        trans_id = await self.next_transaction()
         fut = asyncio.Future()
         self.transactions[trans_id] = fut
         return trans_id, fut
@@ -110,7 +117,7 @@ class ModbusTCPClient:
                 return
         except AttributeError:
             pass
-        loop = asyncio._get_running_loop()
+        loop = asyncio.get_running_loop()
         while self.running:
             try:
                 if self.client_port:
@@ -176,7 +183,7 @@ class ModbusTCPClient:
         if not self.running:
             raise RuntimeError("Client is stopped")
         async with self.transaction_limit:
-            trans_id, fut = self.protocol.new_transaction()
+            trans_id, fut = await self.protocol.new_transaction()
             packet = self._encode_packet(
                 unit, function_code, address, trans_id, *values
             )
