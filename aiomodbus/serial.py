@@ -9,6 +9,7 @@ Source www.modbus.org Modbus_over_serial_line_V1.02 2006
 """
 import asyncio
 import struct
+import weakref
 from dataclasses import dataclass
 import logging
 from aiomodbus import decoders, encoders
@@ -23,13 +24,16 @@ log = logging.getLogger(__file__)
 class ModbusSerialProtocol(asyncio.Protocol):
     def __init__(self, client):
         self.transport = None
-        self.client = client
+        self._client_ref = weakref.ref(client)
         self.current_request = None
         self.recv_callback = None
         self.q = asyncio.Queue()
         self.buffer = bytearray()
-        self.loop = asyncio.get_event_loop()
         self.byte_time = 0
+
+    @property
+    def client(self):
+        return self._client_ref()
 
     def connection_made(self, transport: serial_asyncio.SerialTransport):
         self.transport = transport
@@ -86,7 +90,9 @@ class ModbusSerialProtocol(asyncio.Protocol):
             await self.q.get()
 
     def connection_lost(self, exc):
-        self.client.connected.clear()
+        client = self.client
+        if client:
+            client.connected.clear()
 
 
 @dataclass

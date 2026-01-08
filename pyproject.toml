@@ -1,0 +1,45 @@
+[project]
+name = "aiomodbus"
+version = "0.6.1"
+description = "Lightweight Modbus library using asyncio"
+authors = [
+    { name = "Ryan Parry-Jones", email = "ryanspj+github@gmail.com" },
+]
+dependencies = [
+    "pyserial-asyncio",
+]
+requires-python = ">=3.7"
+readme = "README.md"
+license = "MIT"
+license-files = { paths = ["LICENSE"] }
+classifiers = [
+    "Intended Audience :: Manufacturing",
+    "Intended Audience :: Telecommunications Industry",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Development Status :: 2 - Pre-Alpha",
+]
+
+[project.urls]
+Homepage = "https://github.com/pazzarpj/aiomodbus"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "pytest-asyncio",
+    "pytest-mock",
+    "black",
+]

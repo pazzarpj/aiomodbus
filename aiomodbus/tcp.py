@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import socket
+import weakref
 from typing import Optional, Tuple, Union, Dict
 import struct
 from dataclasses import dataclass
@@ -45,10 +46,14 @@ class TransactionLimit:
 
 class ModbusTcpProtocol(asyncio.Protocol):
     def __init__(self, client):
-        self.client = client
+        self._client_ref = weakref.ref(client)
         self.transactions: Dict[int, asyncio.Future] = {}
         self._cnt_lock = Lock()
         self.transaction_cnt = 0
+
+    @property
+    def client(self):
+        return self._client_ref()
 
     async def next_transaction(self):
         async with self._cnt_lock:
@@ -57,6 +62,7 @@ class ModbusTcpProtocol(asyncio.Protocol):
 
     def connection_made(self, transport: transports.BaseTransport) -> None:
         log.info(f"Modbus Client connected at {self.client.host}")
+        self.transport = transport
 
     def data_received(self, data: bytes) -> None:
         while True:
@@ -77,13 +83,20 @@ class ModbusTcpProtocol(asyncio.Protocol):
             data = payload[length - 2 :]
 
     def connection_lost(self, exc: Optional[Exception]) -> None:
-        self.client.connected.clear()
-        log.info(f"Modbus Client disconnected from {self.client.host}")
-        if self.client.running:
-            for fut in self.transactions.values():
-                if not fut.done():
-                    fut.cancel()
-            asyncio.create_task(self.client.connect())
+        client = self.client
+        if client:
+            client.connected.clear()
+            log.info(f"Modbus Client disconnected from {client.host}")
+        for fut in self.transactions.values():
+            if not fut.done():
+                fut.cancel()
+        self.transactions.clear()
+        if client and client.running:
+            if client._connect_task is None or client._connect_task.done():
+                client._connect_task = asyncio.create_task(client.connect())
+        if hasattr(self, "transport") and self.transport:
+            self.transport.close()
+            self.transport = None
 
     async def new_transaction(self) -> Tuple[int, asyncio.Future]:
         trans_id = await self.next_transaction()
@@ -104,6 +117,7 @@ class ModbusTCPClient:
     transport: asyncio.Transport = None
     protocol: ModbusTcpProtocol = None
     running: bool = True
+    _connect_task: Optional[asyncio.Task] = None
 
     def __post_init__(self):
         self.connected = asyncio.Event()
@@ -120,6 +134,8 @@ class ModbusTCPClient:
         loop = asyncio.get_running_loop()
         while self.running:
             try:
+                if self.transport and not self.transport.is_closing():
+                    self.transport.close()
                 if self.client_port:
                     sock = await self.build_reuse_socket()
                     self.transport, self.protocol = await asyncio.wait_for(
@@ -245,6 +261,9 @@ class ModbusTCPClient:
 
     def stop(self):
         self.running = False
+        if self._connect_task:
+            self._connect_task.cancel()
+            self._connect_task = None
         if self.transport:
             self.transport.close()
 
